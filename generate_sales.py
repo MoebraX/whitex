@@ -1,14 +1,14 @@
 import csv
 import random
 from datetime import date, timedelta
-from collections import defaultdict
+
 
 # ============================================================
 # CONFIG
 # ============================================================
 
 PRODUCTS_FILE = "products.csv"
-REGIONS_FILE = "regions.csv"
+DISTRIBUTORS_FILE = "distributors.csv"
 OUTPUT_FILE = "sales.csv"
 
 NUM_SALES = 50_000
@@ -20,43 +20,50 @@ random.seed(42)
 
 
 # ============================================================
-# BUSINESS WEIGHTS
+# PRODUCT SALES WEIGHTS
 # ============================================================
 
 # Higher value = higher probability of being sold.
+#
 # Small-volume products intentionally have higher demand.
-
+# For example:
+#
+#   1L bleach  >>  4L bleach
+#
 PRODUCT_WEIGHTS = {
-    "P001": 2.0,   # Thick bleach 4L
-    "P002": 3.5,   # Thick bleach 2L
-    "P003": 8.0,   # Thick bleach 1L
+    "P001": 2.0,
+    "P002": 3.5,
+    "P003": 8.0,
 
-    "P004": 3.0,   # Regular bleach 4L
-    "P005": 10.0,  # Regular bleach 1L
+    "P004": 3.0,
+    "P005": 10.0,
 
-    "P006": 5.0,   # Glass cleaner 1L
-    "P007": 7.0,   # Glass cleaner 500ml
+    "P006": 5.0,
+    "P007": 7.0,
 
-    "P008": 6.0,   # Toilet cleaner 1L
-    "P009": 7.5,   # Toilet cleaner 750ml
-    "P010": 4.5,   # Scented toilet cleaner 1L
+    "P008": 6.0,
+    "P009": 7.5,
+    "P010": 4.5,
 
-    "P011": 5.0,   # Hand wash 2L
-    "P012": 6.0,   # Hand wash 1L
-    "P013": 7.5,   # Hand wash 500ml
-    "P014": 4.0,   # Antibacterial hand wash 500ml
+    "P011": 5.0,
+    "P012": 6.0,
+    "P013": 7.5,
+    "P014": 4.0,
 
-    "P015": 2.5,   # Dishwashing 4L
-    "P016": 4.5,   # Dishwashing 2L
-    "P017": 9.0,   # Dishwashing 1L
-    "P018": 7.0,   # Dishwashing 750ml
-    "P019": 4.0,   # Concentrated dishwashing 1L
-    "P020": 6.0,   # Concentrated dishwashing 500ml
+    "P015": 2.5,
+    "P016": 4.5,
+    "P017": 9.0,
+    "P018": 7.0,
+    "P019": 4.0,
+    "P020": 6.0,
 }
 
 
-# Market size of regions.
-# Larger cities have more transactions.
+# ============================================================
+# DISTRIBUTION / REGION WEIGHTS
+# ============================================================
+
+# Larger markets receive more sales transactions.
 
 REGION_WEIGHTS = {
     "R001": 20.0,  # Tehran
@@ -83,6 +90,7 @@ REGION_WEIGHTS = {
 
 def daterange(start, end):
     """Generate every date between start and end."""
+
     current = start
 
     while current <= end:
@@ -90,124 +98,289 @@ def daterange(start, end):
         current += timedelta(days=1)
 
 
-def get_category_seasonality(category, month):
+def gregorian_to_jalali(gy, gm, gd):
     """
-    Returns a multiplier for the category/month combination.
+    Convert Gregorian date to Jalali date.
+
+    Returns:
+        (jy, jm, jd)
+    """
+
+    g_d_m = [
+        0, 31, 59, 90, 120, 151,
+        181, 212, 243, 273, 304, 334
+    ]
+
+    if gy > 1600:
+        jy = 979
+        gy -= 1600
+    else:
+        jy = 0
+        gy -= 621
+
+    if gm > 2:
+        gy2 = gy + 1
+    else:
+        gy2 = gy
+
+    days = (
+        365 * gy
+        + (gy2 + 3) // 4
+        - (gy2 + 99) // 100
+        + (gy2 + 399) // 400
+        - 80
+        + gd
+        + g_d_m[gm - 1]
+    )
+
+    if gm > 2 and (
+        gy % 4 == 0
+        and (
+            gy % 100 != 0
+            or gy % 400 == 0
+        )
+    ):
+        days += 1
+
+    jy += 33 * (days // 12053)
+    days %= 12053
+
+    jy += 4 * (days // 1461)
+    days %= 1461
+
+    if days > 365:
+        jy += (days - 1) // 365
+        days = (days - 1) % 365
+
+    if days < 186:
+        jm = 1 + days // 31
+        jd = 1 + days % 31
+    else:
+        jm = 7 + (days - 186) // 30
+        jd = 1 + (days - 186) % 30
+
+    return jy, jm, jd
+
+
+# ============================================================
+# CATEGORY SEASONALITY
+# ============================================================
+
+def get_category_seasonality(category, jalali_month):
+    """
+    Business seasonality based on Iranian calendar.
+
+    Esfand:
+        House cleaning / Nowruz preparation.
+
+    Farvardin:
+        Nowruz holidays.
     """
 
     multiplier = 1.0
 
-    # Nowruz / spring cleaning
-    if month == 12:
+    # --------------------------------------------------------
+    # Esfand
+    # --------------------------------------------------------
+
+    if jalali_month == 12:
+
         if category == "bleach":
             multiplier *= 1.40
+
         elif category == "toilet_cleaner":
             multiplier *= 1.35
+
         elif category == "glass_cleaner":
             multiplier *= 1.30
+
         elif category == "dishwashing_liquid":
             multiplier *= 1.20
+
         elif category == "hand_wash":
             multiplier *= 1.10
 
-    # Farvardin / Nowruz holidays
-    elif month == 1:
+    # --------------------------------------------------------
+    # Farvardin
+    # --------------------------------------------------------
+
+    elif jalali_month == 1:
+
         multiplier *= 0.85
 
-    # Summer
-    elif month in [4, 5]:
+    # --------------------------------------------------------
+    # Tir / Mordad
+    # --------------------------------------------------------
+
+    elif jalali_month in [4, 5]:
+
         if category == "glass_cleaner":
             multiplier *= 1.10
+
         elif category == "dishwashing_liquid":
             multiplier *= 1.08
 
-    # School season
-    elif month == 7:
+    # --------------------------------------------------------
+    # Mehr
+    # --------------------------------------------------------
+
+    elif jalali_month == 7:
+
         if category == "hand_wash":
             multiplier *= 1.10
+
         elif category == "dishwashing_liquid":
             multiplier *= 1.05
 
-    # Winter
-    elif month == 10:
+    # --------------------------------------------------------
+    # Dey
+    # --------------------------------------------------------
+
+    elif jalali_month == 10:
+
         if category == "hand_wash":
             multiplier *= 1.05
 
     return multiplier
 
 
+# ============================================================
+# WEEKLY SEASONALITY
+# ============================================================
+
 def get_day_multiplier(d):
     """
-    Adds weekly purchasing behavior.
+    Weekly purchasing behavior.
+
+    Thursday:
+        Slightly higher.
+
+    Friday:
+        Lower commercial activity.
     """
 
-    # Friday in Iran is typically lower business activity.
+    # Monday = 0
+    # ...
+    # Friday = 4
+
     if d.weekday() == 4:
         return 0.75
 
-    # Thursday tends to be slightly higher.
     if d.weekday() == 3:
         return 1.10
 
     return 1.0
 
 
-def get_distributor_quantity_multiplier(distributor_type):
+# ============================================================
+# DISTRIBUTION QUANTITY
+# ============================================================
+
+def get_distribution_quantity_multiplier(
+    distribution_id
+):
     """
-    Wholesale orders are larger but less frequent.
-    """
-
-    if distributor_type == "wholesaler":
-        return 5.0
-
-    if distributor_type == "supermarket":
-        return 2.5
-
-    if distributor_type == "direct":
-        return 4.0
-
-    # retailer
-    return 1.0
-
-
-def generate_quantity(distributor_type):
-    """
-    Generates realistic order quantities.
+    Different distribution regions have
+    different market sizes.
     """
 
-    if distributor_type == "wholesaler":
-        return random.randint(30, 300)
+    multipliers = {
+        "R001": 1.80,  # Tehran
+        "R002": 1.20,  # Isfahan
+        "R003": 1.50,  # Mashhad
+        "R004": 1.10,  # Shiraz
+        "R005": 1.10,  # Tabriz
+        "R006": 1.30,  # Karaj
+        "R007": 1.00,  # Ahvaz
+        "R008": 0.80,  # Qom
+        "R009": 0.90,  # Rasht
+        "R010": 0.80,  # Sari
+        "R011": 0.80,  # Kerman
+        "R012": 0.70,  # Yazd
+        "R013": 0.80,  # Urmia
+        "R014": 0.70,  # Kermanshah
+        "R015": 0.70,  # Bandar Abbas
+    }
 
-    if distributor_type == "supermarket":
-        return random.randint(10, 100)
-
-    if distributor_type == "direct":
-        return random.randint(20, 200)
-
-    # retailer
-    return random.randint(3, 40)
+    return multipliers.get(
+        distribution_id,
+        1.0
+    )
 
 
-def generate_discount(distributor_type, quantity):
+def generate_quantity(distribution_id):
     """
-    Larger orders receive larger discounts.
+    Generate realistic sales quantity
+    based on market size.
     """
 
-    if distributor_type == "wholesaler":
-        if quantity >= 200:
-            return random.choice([8, 10, 12, 15])
-        elif quantity >= 100:
-            return random.choice([5, 7, 8, 10])
-        else:
-            return random.choice([3, 5, 7])
+    multiplier = get_distribution_quantity_multiplier(
+        distribution_id
+    )
 
-    if distributor_type == "supermarket":
-        return random.choice([2, 3, 5, 7])
+    base_quantity = random.randint(
+        5,
+        80
+    )
 
-    if distributor_type == "direct":
-        return random.choice([3, 5, 7, 10])
+    quantity = round(
+        base_quantity * multiplier
+    )
 
-    return random.choice([0, 0, 2, 3, 5])
+    return max(
+        1,
+        quantity
+    )
+
+
+# ============================================================
+# DISCOUNT
+# ============================================================
+
+def generate_discount(
+    distribution_id,
+    quantity
+):
+    """
+    Larger orders generally receive
+    larger discounts.
+    """
+
+    if quantity >= 150:
+
+        return random.choice([
+            7,
+            8,
+            10,
+            12
+        ])
+
+    elif quantity >= 80:
+
+        return random.choice([
+            5,
+            6,
+            7,
+            8
+        ])
+
+    elif quantity >= 40:
+
+        return random.choice([
+            3,
+            4,
+            5,
+            6
+        ])
+
+    else:
+
+        return random.choice([
+            0,
+            0,
+            2,
+            3
+        ])
 
 
 # ============================================================
@@ -216,26 +389,41 @@ def generate_discount(distributor_type, quantity):
 
 products = []
 
-with open(PRODUCTS_FILE, "r", encoding="utf-8-sig", newline="") as f:
+with open(
+    PRODUCTS_FILE,
+    "r",
+    encoding="utf-8-sig",
+    newline=""
+) as f:
+
     reader = csv.DictReader(f)
 
     for row in reader:
-        row["unit_price_toman"] = int(row["unit_price_toman"])
+
+        row["unit_price_toman"] = int(
+            row["unit_price_toman"]
+        )
 
         products.append(row)
 
 
 # ============================================================
-# LOAD REGIONS
+# LOAD DISTRIBUTORS
 # ============================================================
 
-regions = []
+distributors = []
 
-with open(REGIONS_FILE, "r", encoding="utf-8-sig", newline="") as f:
+with open(
+    DISTRIBUTORS_FILE,
+    "r",
+    encoding="utf-8-sig",
+    newline=""
+) as f:
+
     reader = csv.DictReader(f)
 
     for row in reader:
-        regions.append(row)
+        distributors.append(row)
 
 
 # ============================================================
@@ -243,14 +431,58 @@ with open(REGIONS_FILE, "r", encoding="utf-8-sig", newline="") as f:
 # ============================================================
 
 product_weights = [
-    PRODUCT_WEIGHTS.get(p["product_id"], 1.0)
-    for p in products
+    PRODUCT_WEIGHTS.get(
+        product["product_id"],
+        1.0
+    )
+    for product in products
 ]
 
+
 region_weights = [
-    REGION_WEIGHTS.get(r["region_id"], 1.0)
-    for r in regions
+    REGION_WEIGHTS.get(
+        distributor["Distribution_ID"],
+        1.0
+    )
+    for distributor in distributors
 ]
+
+
+# ============================================================
+# GENERATE DATE WEIGHTS
+# ============================================================
+
+all_dates = list(
+    daterange(
+        START_DATE,
+        END_DATE
+    )
+)
+
+date_weights = []
+
+for d in all_dates:
+
+    weight = get_day_multiplier(d)
+
+    _, jalali_month, _ = gregorian_to_jalali(
+        d.year,
+        d.month,
+        d.day
+    )
+
+    # General seasonal demand
+
+    if jalali_month == 12:
+        weight *= 1.30
+
+    elif jalali_month == 1:
+        weight *= 0.85
+
+    elif jalali_month in [10, 11]:
+        weight *= 1.05
+
+    date_weights.append(weight)
 
 
 # ============================================================
@@ -259,29 +491,14 @@ region_weights = [
 
 sales = []
 
-all_dates = list(daterange(START_DATE, END_DATE))
-
-for sale_number in range(1, NUM_SALES + 1):
+for sale_number in range(
+    1,
+    NUM_SALES + 1
+):
 
     # --------------------------------------------------------
-    # Select date using seasonal weights
+    # SELECT DATE
     # --------------------------------------------------------
-
-    date_weights = []
-
-    for d in all_dates:
-
-        weight = get_day_multiplier(d)
-
-        # Approximate seasonal uplift across the year.
-        if d.month == 12:
-            weight *= 1.30
-        elif d.month == 1:
-            weight *= 0.85
-        elif d.month in [10, 11]:
-            weight *= 1.05
-
-        date_weights.append(weight)
 
     sale_date = random.choices(
         all_dates,
@@ -289,8 +506,14 @@ for sale_number in range(1, NUM_SALES + 1):
         k=1
     )[0]
 
+    _, jalali_month, _ = gregorian_to_jalali(
+        sale_date.year,
+        sale_date.month,
+        sale_date.day
+    )
+
     # --------------------------------------------------------
-    # Select product
+    # SELECT PRODUCT
     # --------------------------------------------------------
 
     product = random.choices(
@@ -301,80 +524,124 @@ for sale_number in range(1, NUM_SALES + 1):
 
     category = product["category"]
 
-    # Category-specific seasonality
-    seasonal_multiplier = get_category_seasonality(
-        category,
-        sale_date.month
+    # --------------------------------------------------------
+    # CATEGORY SEASONALITY
+    # --------------------------------------------------------
+
+    seasonal_multiplier = (
+        get_category_seasonality(
+            category,
+            jalali_month
+        )
     )
 
-    # Occasionally skip seasonal effect.
-    # This prevents the data from looking artificially perfect.
+    # 15% of transactions don't follow
+    # the exact seasonal pattern.
+
     if random.random() < 0.15:
         seasonal_multiplier = 1.0
 
     # --------------------------------------------------------
-    # Select region
+    # SELECT DISTRIBUTION
     # --------------------------------------------------------
 
-    region = random.choices(
-        regions,
+    distributor = random.choices(
+        distributors,
         weights=region_weights,
         k=1
     )[0]
 
-    distributor_type = region["distributor_type"]
+    distribution_id = distributor[
+        "Distribution_ID"
+    ]
 
     # --------------------------------------------------------
-    # Quantity
+    # QUANTITY
     # --------------------------------------------------------
 
-    quantity = generate_quantity(distributor_type)
+    quantity = generate_quantity(
+        distribution_id
+    )
 
-    # Apply seasonal demand to quantity occasionally.
+    # Apply seasonal demand.
+
     if random.random() < 0.70:
+
         quantity = max(
             1,
-            round(quantity * seasonal_multiplier)
+            round(
+                quantity
+                * seasonal_multiplier
+            )
         )
 
-    # Random normal variation
+    # Natural variation.
+
     quantity = max(
         1,
-        round(quantity * random.uniform(0.85, 1.20))
+        round(
+            quantity
+            * random.uniform(
+                0.85,
+                1.20
+            )
+        )
     )
 
     # --------------------------------------------------------
-    # Price
+    # PRICE
     # --------------------------------------------------------
 
-    base_price = product["unit_price_toman"]
+    base_price = product[
+        "unit_price_toman"
+    ]
 
-    # Small realistic price variation.
-    # Simulates different contracts / price changes.
-    price_factor = random.uniform(0.97, 1.08)
+    # Small price variation.
 
-    unit_price = round(base_price * price_factor)
+    price_factor = random.uniform(
+        0.97,
+        1.08
+    )
+
+    unit_price = round(
+        base_price * price_factor
+    )
 
     # --------------------------------------------------------
-    # Discount
+    # DISCOUNT
     # --------------------------------------------------------
 
     discount_percent = generate_discount(
-        distributor_type,
+        distribution_id,
         quantity
     )
 
-    gross_price = quantity * unit_price
+    # --------------------------------------------------------
+    # TOTAL PRICE
+    # --------------------------------------------------------
 
-    total_price = round(
-        gross_price * (1 - discount_percent / 100)
+    gross_price = (
+        quantity
+        * unit_price
     )
 
+    total_price = round(
+        gross_price
+        * (
+            1
+            - discount_percent / 100
+        )
+    )
+
+    # --------------------------------------------------------
+    # CREATE SALE
+    # --------------------------------------------------------
+
     sale = {
-        "sale_id": f"S{sale_number:06d}",
+        "sale_id": sale_number,
         "date": sale_date.isoformat(),
         "product_id": product["product_id"],
-        "region_id": region["region_id"],
+        "Distribution_ID": distribution_id,
         "quantity": quantity,
         "unit_price_toman": unit_price,
         "discount_percent": discount_percent,
@@ -388,7 +655,12 @@ for sale_number in range(1, NUM_SALES + 1):
 # ADD CONTROLLED DIRTY DATA
 # ============================================================
 
-num_dirty = round(NUM_SALES * 0.025)
+# Approximately 2.5% of records will contain
+# a controlled data-quality problem.
+
+num_dirty = round(
+    NUM_SALES * 0.025
+)
 
 dirty_indices = random.sample(
     range(NUM_SALES),
@@ -400,6 +672,7 @@ for index in dirty_indices:
     row = sales[index]
 
     error_type = random.choices(
+
         [
             "missing_region",
             "invalid_product",
@@ -411,6 +684,7 @@ for index in dirty_indices:
             "missing_price",
             "comma_number"
         ],
+
         weights=[
             10,
             8,
@@ -422,37 +696,97 @@ for index in dirty_indices:
             5,
             5
         ],
+
         k=1
     )[0]
 
+    # --------------------------------------------------------
+    # Missing Distribution ID
+    # --------------------------------------------------------
+
     if error_type == "missing_region":
-        row["region_id"] = ""
+
+        row["Distribution_ID"] = ""
+
+    # --------------------------------------------------------
+    # Invalid Product ID
+    # --------------------------------------------------------
 
     elif error_type == "invalid_product":
+
         row["product_id"] = "P999"
 
+    # --------------------------------------------------------
+    # Negative Quantity
+    # --------------------------------------------------------
+
     elif error_type == "negative_quantity":
-        row["quantity"] = -random.randint(1, 10)
+
+        row["quantity"] = -random.randint(
+            1,
+            10
+        )
+
+    # --------------------------------------------------------
+    # Invalid Discount
+    # --------------------------------------------------------
 
     elif error_type == "invalid_discount":
-        row["discount_percent"] = random.choice([50, 75, 100, 110])
+
+        row["discount_percent"] = random.choice([
+            50,
+            75,
+            100,
+            110
+        ])
+
+    # --------------------------------------------------------
+    # Different Date Format
+    # --------------------------------------------------------
 
     elif error_type == "date_format":
-        d = row["date"]
-        row["date"] = d.replace("-", "/")
+
+        row["date"] = row["date"].replace(
+            "-",
+            "/"
+        )
+
+    # --------------------------------------------------------
+    # Extra Spaces
+    # --------------------------------------------------------
 
     elif error_type == "extra_spaces":
-        row["product_id"] = f' {row["product_id"]} '
+
+        row["product_id"] = (
+            f' {row["product_id"]} '
+        )
+
+    # --------------------------------------------------------
+    # Duplicate
+    # --------------------------------------------------------
 
     elif error_type == "duplicate":
+
         if index > 0:
+
             previous = sales[index - 1]
+
             row.update(previous)
 
+    # --------------------------------------------------------
+    # Missing Price
+    # --------------------------------------------------------
+
     elif error_type == "missing_price":
+
         row["unit_price_toman"] = ""
 
+    # --------------------------------------------------------
+    # Comma-formatted number
+    # --------------------------------------------------------
+
     elif error_type == "comma_number":
+
         row["total_price_toman"] = (
             f'{row["total_price_toman"]:,}'
         )
@@ -466,7 +800,7 @@ fieldnames = [
     "sale_id",
     "date",
     "product_id",
-    "region_id",
+    "Distribution_ID",
     "quantity",
     "unit_price_toman",
     "discount_percent",
@@ -489,5 +823,14 @@ with open(
     writer.writerows(sales)
 
 
-print(f"Generated {len(sales):,} sales records.")
-print(f"Output: {OUTPUT_FILE}")
+# ============================================================
+# RESULT
+# ============================================================
+
+print(
+    f"Generated {len(sales):,} sales records."
+)
+
+print(
+    f"Output: {OUTPUT_FILE}"
+)

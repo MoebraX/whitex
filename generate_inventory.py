@@ -4,7 +4,7 @@ from datetime import date, timedelta
 from collections import defaultdict
 
 PRODUCTS_FILE = "products.csv"
-REGIONS_FILE = "regions.csv"
+REGIONS_FILE = "distributors.csv"
 OUTPUT_FILE = "inventory.csv"
 
 START_DATE = date(2025, 8, 24)
@@ -121,10 +121,10 @@ for product in products:
 
     for region in regions:
 
-        region_id = region["region_id"]
+        Distribution_ID = region["Distribution_ID"]
 
         region_factor = REGION_SIZE.get(
-            region_id,
+            Distribution_ID,
             1.0
         )
 
@@ -193,7 +193,7 @@ for product in products:
             inventory.append({
                 "product_id": product_id,
                 "date": current_date.isoformat(),
-                "region_id": region_id,
+                "Distribution_ID": Distribution_ID,
                 "stock_quantity": current_stock
             })
 
@@ -245,7 +245,7 @@ for product in products:
 fieldnames = [
     "product_id",
     "date",
-    "region_id",
+    "Distribution_ID",
     "stock_quantity",
 ]
 
