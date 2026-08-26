@@ -1,15 +1,19 @@
 import csv
 import random
 from datetime import date, timedelta
+from pathlib import Path
 
 
 # ============================================================
 # CONFIG
 # ============================================================
 
-PRODUCTS_FILE = "products.csv"
-DISTRIBUTORS_FILE = "distributors.csv"
-OUTPUT_FILE = "sales.csv"
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+LOGS_FILE = BASE_DIR / "data" / "data_cleaning_logs.csv"
+PRODUCTS_FILE = BASE_DIR / "data" / "products.csv"
+DISTRIBUTORS_FILE = BASE_DIR / "data" / "distributions.csv"
+OUTPUT_FILE = BASE_DIR / "data" / "sales.csv"
 
 NUM_SALES = 50_000
 
@@ -400,8 +404,8 @@ with open(
 
     for row in reader:
 
-        row["unit_price_toman"] = int(
-            row["unit_price_toman"]
+        row["unit_price_rial"] = int(
+            row["unit_price_rial"]
         )
 
         products.append(row)
@@ -441,7 +445,7 @@ product_weights = [
 
 region_weights = [
     REGION_WEIGHTS.get(
-        distributor["Distribution_ID"],
+        distributor["distribution_id"],
         1.0
     )
     for distributor in distributors
@@ -552,7 +556,7 @@ for sale_number in range(
     )[0]
 
     distribution_id = distributor[
-        "Distribution_ID"
+        "distribution_id"
     ]
 
     # --------------------------------------------------------
@@ -593,19 +597,12 @@ for sale_number in range(
     # --------------------------------------------------------
 
     base_price = product[
-        "unit_price_toman"
+        "unit_price_rial"
     ]
 
-    # Small price variation.
-
-    price_factor = random.uniform(
-        0.97,
-        1.08
-    )
-
-    unit_price = round(
-        base_price * price_factor
-    )
+    # Use the exact unit price from products.csv.
+    # No variation is applied here.
+    unit_price = base_price
 
     # --------------------------------------------------------
     # DISCOUNT
@@ -641,11 +638,11 @@ for sale_number in range(
         "sale_id": sale_number,
         "date": sale_date.isoformat(),
         "product_id": product["product_id"],
-        "Distribution_ID": distribution_id,
+        "distribution_id": distribution_id,
         "quantity": quantity,
-        "unit_price_toman": unit_price,
+        "unit_price_rial": unit_price,
         "discount_percent": discount_percent,
-        "total_price_toman": total_price,
+        "total_price_rial": total_price,
     }
 
     sales.append(sale)
@@ -706,7 +703,7 @@ for index in dirty_indices:
 
     if error_type == "missing_region":
 
-        row["Distribution_ID"] = ""
+        row["distribution_id"] = ""
 
     # --------------------------------------------------------
     # Invalid Product ID
@@ -779,7 +776,7 @@ for index in dirty_indices:
 
     elif error_type == "missing_price":
 
-        row["unit_price_toman"] = ""
+        row["unit_price_rial"] = ""
 
     # --------------------------------------------------------
     # Comma-formatted number
@@ -787,8 +784,8 @@ for index in dirty_indices:
 
     elif error_type == "comma_number":
 
-        row["total_price_toman"] = (
-            f'{row["total_price_toman"]:,}'
+        row["total_price_rial"] = (
+            f'{row["total_price_rial"]:,}'
         )
 
 
@@ -800,11 +797,11 @@ fieldnames = [
     "sale_id",
     "date",
     "product_id",
-    "Distribution_ID",
+    "distribution_id",
     "quantity",
-    "unit_price_toman",
+    "unit_price_rial",
     "discount_percent",
-    "total_price_toman",
+    "total_price_rial",
 ]
 
 with open(

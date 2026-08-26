@@ -1,21 +1,21 @@
-product_id,name,category,subcategory,volume_ml,unit_price_toman,cost_price_toman,is_active
-P001,وایتکس غلیظ 4 لیتری,bleach,thick_bleach,4000,185000,122000,true
-P002,وایتکس غلیظ 2 لیتری,bleach,thick_bleach,2000,105000,69000,true
-P003,وایتکس غلیظ 1 لیتری,bleach,thick_bleach,1000,58000,38000,true
-P004,وایتکس معمولی 4 لیتری,bleach,regular_bleach,4000,145000,95000,true
-P005,وایتکس معمولی 1 لیتری,bleach,regular_bleach,1000,48000,31000,true
-P006,شیشه پاک کن 1 لیتری,glass_cleaner,standard_glass_cleaner,1000,85000,55000,true
-P007,شیشه پاک کن 500 میلی لیتری,glass_cleaner,standard_glass_cleaner,500,58000,37000,true
-P008,جرم گیر 1 لیتری,toilet_cleaner,standard_toilet_cleaner,1000,72000,46000,true
-P009,جرم گیر 750 میلی لیتری,toilet_cleaner,standard_toilet_cleaner,750,61000,39000,true
-P010,جرم گیر معطر 1 لیتری,toilet_cleaner,scented_toilet_cleaner,1000,79000,51000,true
-P011,مایع دستشویی 2 لیتری,hand_wash,liquid_hand_wash,2000,135000,88000,true
-P012,مایع دستشویی 1 لیتری,hand_wash,liquid_hand_wash,1000,82000,53000,true
-P013,مایع دستشویی 500 میلی لیتری,hand_wash,liquid_hand_wash,500,52000,34000,true
-P014,مایع دستشویی آنتی باکتریال 500 میلی لیتری,hand_wash,antibacterial_hand_wash,500,65000,42000,true
-P015,مایع ظرفشویی 4 لیتری,dishwashing_liquid,regular_dishwashing,4000,210000,138000,true
-P016,مایع ظرفشویی 2 لیتری,dishwashing_liquid,regular_dishwashing,2000,125000,82000,true
-P017,مایع ظرفشویی 1 لیتری,dishwashing_liquid,regular_dishwashing,1000,72000,47000,true
-P018,مایع ظرفشویی 750 میلی لیتری,dishwashing_liquid,regular_dishwashing,750,59000,38000,true
-P019,مایع ظرفشویی غلیظ 1 لیتری,dishwashing_liquid,concentrated_dishwashing,1000,95000,62000,true
-P020,مایع ظرفشویی غلیظ 500 میلی لیتری,dishwashing_liquid,concentrated_dishwashing,500,62000,40000,true
+product_id,name,category,subcategory,volume_ml,unit_price_rial,cost_price_rial,is_active
+P001,وایتکس غلیظ 4 لیتری,bleach,thick_bleach,4000,1850000,1220000,true
+P002,وایتکس غلیظ 2 لیتری,bleach,thick_bleach,2000,1050000,690000,true
+P003,وایتکس غلیظ 1 لیتری,bleach,thick_bleach,1000,580000,380000,true
+P004,وایتکس معمولی 4 لیتری,bleach,regular_bleach,4000,1450000,950000,true
+P005,وایتکس معمولی 1 لیتری,bleach,regular_bleach,1000,480000,310000,true
+P006,شیشه پاک کن 1 لیتری,glass_cleaner,standard_glass_cleaner,1000,850000,550000,true
+P007,شیشه پاک کن 500 میلی لیتری,glass_cleaner,standard_glass_cleaner,500,580000,370000,true
+P008,جرم گیر 1 لیتری,toilet_cleaner,standard_toilet_cleaner,1000,720000,460000,true
+P009,جرم گیر 750 میلی لیتری,toilet_cleaner,standard_toilet_cleaner,750,610000,390000,true
+P010,جرم گیر معطر 1 لیتری,toilet_cleaner,scented_toilet_cleaner,1000,790000,510000,true
+P011,مایع دستشویی 2 لیتری,hand_wash,liquid_hand_wash,2000,1350000,880000,true
+P012,مایع دستشویی 1 لیتری,hand_wash,liquid_hand_wash,1000,820000,530000,true
+P013,مایع دستشویی 500 میلی لیتری,hand_wash,liquid_hand_wash,500,520000,340000,true
+P014,مایع دستشویی آنتی باکتریال 500 میلی لیتری,hand_wash,antibacterial_hand_wash,500,650000,420000,true
+P015,مایع ظرفشویی 4 لیتری,dishwashing_liquid,regular_dishwashing,4000,2100000,1380000,true
+P016,مایع ظرفشویی 2 لیتری,dishwashing_liquid,regular_dishwashing,2000,1250000,820000,true
+P017,مایع ظرفشویی 1 لیتری,dishwashing_liquid,regular_dishwashing,1000,720000,470000,true
+P018,مایع ظرفشویی 750 میلی لیتری,dishwashing_liquid,regular_dishwashing,750,590000,380000,true
+P019,مایع ظرفشویی غلیظ 1 لیتری,dishwashing_liquid,concentrated_dishwashing,1000,950000,620000,true
+P020,مایع ظرفشویی غلیظ 500 میلی لیتری,dishwashing_liquid,concentrated_dishwashing,500,620000,400000,true

@@ -1,267 +1,878 @@
-import csv
 from pathlib import Path
-import pandas as pd
-from datetime import date, timedelta, datetime
-import jdatetime
+from datetime import datetime
 import re
 
+import pandas as pd
+import numpy as np
+import jdatetime
+
+
+# ============================================================
+# PATHS
+# ============================================================
+
 BASE_DIR = Path(__file__).resolve().parent.parent
+
 SALES_FILE = BASE_DIR / "data" / "sales.csv"
 LOGS_FILE = BASE_DIR / "data" / "data_cleaning_logs.csv"
 PRODUCTS_FILE = BASE_DIR / "data" / "products.csv"
 DISTRIBUTIONS_FILE = BASE_DIR / "data" / "distributions.csv"
 
-#FLAGS: VALID, MISSING, CALCULATED, IMPUTED, TYPE_FIXED, INVALID, OUTLIER, INCONSISTENT, UNKNOWN, DUPLICATE, VALIDATED, REPAIRED
+CLEAN_SALES_FILE = BASE_DIR / "data" / "clean_sales.csv"
+
+
+# ============================================================
+# FLAGS
+# ============================================================
+
+# VALID
+# MISSING
+# CALCULATED
+# IMPUTED
+# TYPE_FIXED
+# INVALID
+# OUTLIER
+# INCONSISTENT
+# UNKNOWN
+# DUPLICATE
+# VALIDATED
+# REPAIRED
+
+
+# ============================================================
+# LOGGING
+# ============================================================
+
+def add_log(logs, field, before, after, flag):
+
+    logs.loc[len(logs)] = {
+        "date": datetime.now(),
+        "modified_field": field,
+        "before": before,
+        "after": after,
+        "flag": flag
+    }
+
+
+# ============================================================
+# MISSING VALUE CHECK
+# ============================================================
+
+def is_missing(value):
+
+    if value is None:
+        return True
+
+    try:
+        if pd.isna(value):
+            return True
+    except (TypeError, ValueError):
+        pass
+
+    if isinstance(value, str) and value.strip() == "":
+        return True
+
+    return False
+
+
+# ============================================================
+# SALE ID
+# ============================================================
 
 def check_sale_id(clean_sales, row, logs):
-    output = row["sale_id"]
-    if " " in output:
-        logs.loc[len(logs)] = {
-            "date": datetime.now(),
-            "modified_field": "sale_id",
-            "before": output,
-            "after": output.replace(" ",""),
-            "flag": "TYPE_FIXED"
-        }
-        output = output.replace(" ","")
+
+    original = row["sale_id"]
+
+    # --------------------------------------------------------
+    # Missing
+    # --------------------------------------------------------
+
+    if is_missing(original):
+
+        add_log(
+            logs,
+            "sale_id",
+            original,
+            "",
+            "UNKNOWN"
+        )
+
+        return ""
+
+
+    # --------------------------------------------------------
+    # Convert to string
+    # --------------------------------------------------------
+
+    output = str(original).strip()
+
+
+    # --------------------------------------------------------
+    # Remove spaces
+    # --------------------------------------------------------
+
+    cleaned = output.replace(" ", "")
+
+    if cleaned != output:
+
+        add_log(
+            logs,
+            "sale_id",
+            output,
+            cleaned,
+            "TYPE_FIXED"
+        )
+
+        output = cleaned
+
+
     if output == "":
-        logs.loc[len(logs)] = {
-            "date": datetime.now(),
-            "modified_field": "sale_id",
-            "before": output,
-            "after": output,
-            "flag": "UNKNOWN"
-        }
+
+        add_log(
+            logs,
+            "sale_id",
+            original,
+            "",
+            "UNKNOWN"
+        )
+
+        return ""
+
+
+    # --------------------------------------------------------
+    # If clean_sales is empty, no duplicate is possible
+    # --------------------------------------------------------
+
+    if clean_sales.empty:
+
         return output
 
-    similars=clean_sales[clean_sales["sale_id"] == output]
-    if not similars.empty:
-        columns_to_compare = [
-            "date",
-            "product_id",
-            "distribution_id",
-            "quantity",
-            "unit_price_toman",
-            "discount_percent",
-            "total_price_toman"
-        ]
-        for _, existing_row in similars.iterrows():
-            if existing_row[columns_to_compare].equals(
-                row[columns_to_compare]
-            ):
-                logs.loc[len(logs)] = {
-                    "date": datetime.now(),
-                    "modified_field": "sale_id",
-                    "before": output,
-                    "after": output,
-                    "flag": "DUPLICATE"
-                }
+
+    # --------------------------------------------------------
+    # Find same sale_id
+    # --------------------------------------------------------
+
+    similars = clean_sales[
+        clean_sales["sale_id"].astype(str) == output
+    ]
+
+
+    if similars.empty:
+
+        return output
+
+
+    # --------------------------------------------------------
+    # Compare all other fields
+    # --------------------------------------------------------
+
+    columns_to_compare = [
+        "date",
+        "product_id",
+        "distribution_id",
+        "quantity",
+        "unit_price_toman",
+        "discount_percent",
+        "total_price_toman"
+    ]
+
+
+    for _, existing_row in similars.iterrows():
+
+        same = True
+
+        for column in columns_to_compare:
+
+            a = existing_row[column]
+            b = row[column]
+
+            if is_missing(a) and is_missing(b):
+                continue
+
+            if str(a).strip() != str(b).strip():
+
+                same = False
                 break
-    return output
+
+
+        # ----------------------------------------------------
+        # Exact duplicate
+        #
+        # Keep it. Do NOT remove it.
+        # ----------------------------------------------------
+
+        if same:
+
+            add_log(
+                logs,
+                "sale_id",
+                output,
+                output,
+                "DUPLICATE"
+            )
+
+            return output
+
+
+    # --------------------------------------------------------
+    # Same ID but different data
+    #
+    # Generate new integer ID
+    # --------------------------------------------------------
+
+    numeric_ids = pd.to_numeric(
+        clean_sales["sale_id"],
+        errors="coerce"
+    ).dropna()
+
+
+    if numeric_ids.empty:
+
+        new_id = 1
+
+    else:
+
+        new_id = int(numeric_ids.max()) + 1
+
+
+    add_log(
+        logs,
+        "sale_id",
+        output,
+        str(new_id),
+        "TYPE_FIXED"
+    )
+
+
+    return str(new_id)
+
+
+# ============================================================
+# JALALI DATE
+# ============================================================
+
+def parse_jalali_date(value):
+
+    if is_missing(value):
+        return None
+
+    value = str(value).strip()
+
+    formats = [
+        "%Y-%m-%d",
+        "%Y/%m/%d",
+        "%d-%m-%Y",
+        "%d/%m/%Y"
+    ]
+
+    for fmt in formats:
+
+        try:
+
+            return jdatetime.datetime.strptime(
+                value,
+                fmt
+            ).date()
+
+        except (ValueError, TypeError):
+
+            continue
+
+    return None
+
 
 def check_date(row, logs):
-    output = row["date"]
-    if " " in output:
-        logs.loc[len(logs)] = {
-            "date": datetime.now(),
-            "modified_field": "date",
-            "before": output,
-            "after": output.replace(" ",""),
-            "flag": "TYPE_FIXED"
-        }
-        output = output.replace(" ","")
-    if output == "":
-        logs.loc[len(logs)] = {
-                "date": datetime.now(),
-                "modified_field": "date",
-                "before": output,
-                "after": output,
-                "flag": "UNKNOWN"
-            }
-        return output
-    try:
-        datetime.strptime(output, "%Y-%m-%d")
-    except (ValueError, TypeError):
-        new_output = ""
-        formats = [
-            "%Y-%m-%d",
-            "%Y/%m/%d",
-            "%d-%m-%Y",
-            "%d/%m/%Y",
-        ]
-        for fmt in formats:
-            try:
-                date = datetime.strptime(output, fmt)
-                new_output = date.strftime("%Y-%m-%d")
-            except (ValueError, TypeError):
-                continue
-        if new_output == "":
-                logs.loc[len(logs)] = {
-                "date": datetime.now(),
-                "modified_field": "date",
-                "before": output,
-                "after": new_output,
-                "flag": "INVALID"
-            }
-        else:
-            logs.loc[len(logs)] = {
-                "date": datetime.now(),
-                "modified_field": "date",
-                "before": output,
-                "after": new_output,
-                "flag": "TYPE_FIXED"
-            }
-        output = new_output
-    jdate = jdatetime.datetime.strptime(output, "%Y-%m-%d").date()
-    now = jdatetime.datetime.today()
-    starting_date = jdatetime.date(1345,1,1)
-    if jdate>now or jdate<starting_date:
-        logs.loc[len(logs)] = {
-                "date": datetime.now(),
-                "modified_field": "date",
-                "before": output,
-                "after": output,
-                "flag": "INVALID"
-            }
-    difference = output - datetime.now()
-    if difference < timedelta(days=365):
-        logs.loc[len(logs)] = {
-                "date": datetime.now(),
-                "modified_field": "date",
-                "before": output,
-                "after": output,
-                "flag": "OUTLIER"
-            }
+
+    original = row["date"]
+
+
+    # --------------------------------------------------------
+    # Missing
+    # --------------------------------------------------------
+
+    if is_missing(original):
+
+        add_log(
+            logs,
+            "date",
+            original,
+            "",
+            "UNKNOWN"
+        )
+
+        return ""
+
+
+    output = str(original).strip()
+
+
+    # --------------------------------------------------------
+    # Remove spaces
+    # --------------------------------------------------------
+
+    cleaned = output.replace(" ", "")
+
+    if cleaned != output:
+
+        add_log(
+            logs,
+            "date",
+            output,
+            cleaned,
+            "TYPE_FIXED"
+        )
+
+        output = cleaned
+
+
+    # --------------------------------------------------------
+    # Parse Jalali date
+    # --------------------------------------------------------
+
+    jdate = parse_jalali_date(output)
+
+
+    if jdate is None:
+
+        add_log(
+            logs,
+            "date",
+            output,
+            "",
+            "INVALID"
+        )
+
+        return ""
+
+
+    # --------------------------------------------------------
+    # Normalize
+    # --------------------------------------------------------
+
+    normalized = jdate.strftime("%Y-%m-%d")
+
+    if normalized != output:
+
+        add_log(
+            logs,
+            "date",
+            output,
+            normalized,
+            "TYPE_FIXED"
+        )
+
+        output = normalized
+
+
+    # --------------------------------------------------------
+    # Date range validation
+    # --------------------------------------------------------
+
+    now = jdatetime.date.today()
+
+    starting_date = jdatetime.date(
+        1345,
+        1,
+        1
+    )
+
+
+    if jdate > now or jdate < starting_date:
+
+        add_log(
+            logs,
+            "date",
+            output,
+            output,
+            "INVALID"
+        )
+
+
+    # --------------------------------------------------------
+    # One-year outlier
+    # --------------------------------------------------------
+
+    difference_days = (
+        now.toordinal()
+        - jdate.toordinal()
+    )
+
+
+    if abs(difference_days) > 365:
+
+        add_log(
+            logs,
+            "date",
+            output,
+            output,
+            "OUTLIER"
+        )
+
+
     return output
+
+
+# ============================================================
+# PRODUCT ID
+# ============================================================
 
 def check_product_id(row, products, logs):
-    output = row["product_id"]
-    if " " in output:
-        logs.loc[len(logs)] = {
-            "date": datetime.now(),
-            "modified_field": "product_id",
-            "before": output,
-            "after": output.replace(" ",""),
-            "flag": "TYPE_FIXED"
-        }
-        output = output.replace(" ","")
-    if output == "":
-        logs.loc[len(logs)] = {
-                "date": datetime.now(),
-                "modified_field": "product_id",
-                "before": output,
-                "after": output,
-                "flag": "UNKNOWN"
-            }
-        return output
-    if not (products["product_id"] == output).any():
-        logs.loc[len(logs)] = {
-            "date": datetime.now(),
-            "modified_field": "product_id",
-            "before": output,
-            "after": output,
-            "flag": "INVALID"
-        }
+
+    original = row["product_id"]
+
+
+    if is_missing(original):
+
+        add_log(
+            logs,
+            "product_id",
+            original,
+            "",
+            "UNKNOWN"
+        )
+
+        return ""
+
+
+    output = str(original).strip()
+
+    cleaned = output.replace(" ", "")
+
+
+    if cleaned != output:
+
+        add_log(
+            logs,
+            "product_id",
+            output,
+            cleaned,
+            "TYPE_FIXED"
+        )
+
+        output = cleaned
+
+
+    valid_products = (
+        products["product_id"]
+        .astype(str)
+        .str.strip()
+    )
+
+
+    if output not in valid_products.values:
+
+        add_log(
+            logs,
+            "product_id",
+            output,
+            output,
+            "INVALID"
+        )
+
+
     return output
-    
+
+
+# ============================================================
+# DISTRIBUTION ID
+# ============================================================
+
 def check_distribution_id(row, distributions, logs):
-    output = row["distribution_id"]
-    if " " in output:
-        logs.loc[len(logs)] = {
-            "date": datetime.now(),
-            "modified_field": "distribution_id",
-            "before": output,
-            "after": output.replace(" ",""),
-            "flag": "TYPE_FIXED"
-        }
-        output = output.replace(" ","")
-    if output == "":
-        logs.loc[len(logs)] = {
-                "date": datetime.now(),
-                "modified_field": "distribution_id",
-                "before": output,
-                "after": output,
-                "flag": "UNKNOWN"
-            }
-        return output
-    if not (distributions["distribution_id"] == output).any():
-        logs.loc[len(logs)] = {
-            "date": datetime.now(),
-            "modified_field": "distribution_id",
-            "before": output,
-            "after": output,
-            "flag": "INVALID"
-        }
+
+    original = row["distribution_id"]
+
+
+    if is_missing(original):
+
+        add_log(
+            logs,
+            "distribution_id",
+            original,
+            "",
+            "UNKNOWN"
+        )
+
+        return ""
+
+
+    output = str(original).strip()
+
+    cleaned = (
+        output
+        .replace(" ", "")
+        .upper()
+    )
+
+
+    if cleaned != output:
+
+        add_log(
+            logs,
+            "distribution_id",
+            output,
+            cleaned,
+            "TYPE_FIXED"
+        )
+
+        output = cleaned
+
+
+    valid_distributions = (
+        distributions["distribution_id"]
+        .astype(str)
+        .str.strip()
+        .str.replace(" ", "", regex=False)
+        .str.upper()
+    )
+
+
+    if output not in valid_distributions.values:
+
+        add_log(
+            logs,
+            "distribution_id",
+            output,
+            output,
+            "INVALID"
+        )
+
+
     return output
+
+
+# ============================================================
+# INTEGER CLEANER
+# ============================================================
 
 def check_isint(input, column_name, logs):
-    output=input
-    if isinstance(output, int):
-        return str(output)
+
+    output = input
+
+
+    # --------------------------------------------------------
+    # Missing
+    # --------------------------------------------------------
+
+    if is_missing(output):
+
+        add_log(
+            logs,
+            column_name,
+            input,
+            "",
+            "MISSING"
+        )
+
+        return False
+
+
+    # --------------------------------------------------------
+    # Integer
+    # --------------------------------------------------------
+
+    if isinstance(output, (int, np.integer)):
+
+        return str(int(output))
+
+
+    # --------------------------------------------------------
+    # Float
+    #
+    # 123.98 -> 123
+    # -123.98 -> -123
+    # --------------------------------------------------------
+
+    if isinstance(output, (float, np.floating)):
+
+        if np.isnan(output):
+
+            add_log(
+                logs,
+                column_name,
+                input,
+                "",
+                "MISSING"
+            )
+
+            return False
+
+
+        new_output = str(int(output))
+
+
+        if new_output != str(output):
+
+            add_log(
+                logs,
+                column_name,
+                input,
+                new_output,
+                "TYPE_FIXED"
+            )
+
+
+        return new_output
+
+
+    # --------------------------------------------------------
+    # String
+    # --------------------------------------------------------
+
     if isinstance(output, str):
-        if " " in output:
-            output = output.replace(" ","")
-        output = re.sub(r"[^0-9]", "", output)
-        if output == "":
-            logs.loc[len(logs)] = {
-                "date": datetime.now(),
-                "modified_field": column_name,
-                "before": input,
-                "after": output,
-                "flag": "MISSING"
-            }
+
+        original = output.strip()
+
+
+        if original == "":
+
+            add_log(
+                logs,
+                column_name,
+                input,
+                "",
+                "MISSING"
+            )
+
             return False
+
+
+        # ----------------------------------------------------
+        # Remove spaces
+        # ----------------------------------------------------
+
+        cleaned = original.replace(" ", "")
+
+
+        # ----------------------------------------------------
+        # Detect negative number BEFORE removing characters
+        #
+        # Examples:
+        # -123
+        # -123.98
+        # abc-123
+        # ----------------------------------------------------
+
+        negative = "-" in cleaned
+
+
+        # ----------------------------------------------------
+        # Remove commas used as thousands separators
+        #
+        # 12,345.67 -> 12345.67
+        # ----------------------------------------------------
+
+        cleaned = cleaned.replace(",", "")
+
+
+        # ----------------------------------------------------
+        # Find decimal number
+        #
+        # 123.98      -> 123
+        # abc123.98   -> 123
+        # 12,345.67   -> 12345
+        # ----------------------------------------------------
+
+        decimal_match = re.search(
+            r"\d+\.\d+",
+            cleaned
+        )
+
+
+        if decimal_match:
+
+            number = decimal_match.group()
+
+            integer_part = str(
+                int(float(number))
+            )
+
+
+            if negative:
+
+                integer_part = "-" + integer_part
+
+
+            output = integer_part
+
+
         else:
-            try:
-                output = int(output)
-                logs.loc[len(logs)] = {
-                    "date": datetime.now(),
-                    "modified_field": column_name,
-                    "before": input,
-                    "after": output,
-                    "flag": "TYPE_FIXED"
-                    }
-                return str(output)
-            except:
-                logs.loc[len(logs)] = {
-                    "date": datetime.now(),
-                    "modified_field": column_name,
-                    "before": input,
-                    "after": output,
-                    "flag": "MISSING"
-                    }
+
+            # ------------------------------------------------
+            # Extract digits
+            # ------------------------------------------------
+
+            digits = re.sub(
+                r"[^0-9]",
+                "",
+                cleaned
+            )
+
+
+            if digits == "":
+
+                add_log(
+                    logs,
+                    column_name,
+                    input,
+                    "",
+                    "MISSING"
+                )
+
                 return False
-    else:
-        try:
-            output = int(output)
-            logs.loc[len(logs)] = {
-                    "date": datetime.now(),
-                    "modified_field": column_name,
-                    "before": input,
-                    "after": output,
-                    "flag": "TYPE_FIXED"
-                }
-            return str(output)
-        except:
-            logs.loc[len(logs)] = {
-                    "date": datetime.now(),
-                    "modified_field": column_name,
-                    "before": input,
-                    "after": output,
-                    "flag": "MISSING"
-                }
-            return False
 
-import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta
 
+            output = str(int(digits))
+
+
+            if negative:
+
+                output = "-" + output
+
+
+        # ----------------------------------------------------
+        # Log modification
+        # ----------------------------------------------------
+
+        if output != original:
+
+            add_log(
+                logs,
+                column_name,
+                input,
+                output,
+                "TYPE_FIXED"
+            )
+
+
+        return output
+
+
+    # --------------------------------------------------------
+    # Other numeric/object values
+    # --------------------------------------------------------
+
+    try:
+
+        output = str(int(output))
+
+
+        add_log(
+            logs,
+            column_name,
+            input,
+            output,
+            "TYPE_FIXED"
+        )
+
+
+        return output
+
+
+    except (ValueError, TypeError):
+
+        add_log(
+            logs,
+            column_name,
+            input,
+            "",
+            "MISSING"
+        )
+
+        return False
+
+
+# ============================================================
+# INVALID QUDT VALUES
+# ============================================================
+
+def invalidate_qudt_values(
+    quantity,
+    unit_price,
+    discount,
+    total_price,
+    logs
+):
+
+    values = [
+        ("quantity", quantity),
+        ("unit_price_toman", unit_price),
+        ("discount_percent", discount),
+        ("total_price_toman", total_price)
+    ]
+
+
+    for field, value in values:
+
+        if value is False or value is None:
+            continue
+
+
+        # ----------------------------------------------------
+        # Negative values are invalid
+        # ----------------------------------------------------
+
+        if value < 0:
+
+            add_log(
+                logs,
+                field,
+                value,
+                "",
+                "INVALID"
+            )
+
+
+            if field == "quantity":
+                quantity = False
+
+            elif field == "unit_price_toman":
+                unit_price = False
+
+            elif field == "discount_percent":
+                discount = False
+
+            elif field == "total_price_toman":
+                total_price = False
+
+
+    # --------------------------------------------------------
+    # Discount must be between 0 and 100
+    # --------------------------------------------------------
+
+    if (
+        discount is not False
+        and discount is not None
+        and not 0 <= discount <= 100
+    ):
+
+        add_log(
+            logs,
+            "discount_percent",
+            discount,
+            "",
+            "INVALID"
+        )
+
+        discount = False
+
+
+    return (
+        quantity,
+        unit_price,
+        discount,
+        total_price
+    )
+
+
+# ============================================================
+# QUDT
+# ============================================================
 
 def check_QUDT(row, sales_df, logs_df):
 
-    # ============================================================
-    # 1. CHECK THE FOUR VALUES
-    # ============================================================
+    # --------------------------------------------------------
+    # 1. Clean values
+    # --------------------------------------------------------
 
     quantity = check_isint(
         row["quantity"],
@@ -287,462 +898,336 @@ def check_QUDT(row, sales_df, logs_df):
         logs_df
     )
 
-    # Convert existing values to integers
-    if quantity is not False:
-        quantity = int(quantity)
 
-    if unit_price is not False:
-        unit_price = int(unit_price)
+    # --------------------------------------------------------
+    # Convert to integers
+    # --------------------------------------------------------
 
-    if discount is not False:
-        discount = int(discount)
+    quantity = (
+        int(quantity)
+        if quantity is not False
+        else False
+    )
 
-    if total_price is not False:
-        total_price = int(total_price)
+    unit_price = (
+        int(unit_price)
+        if unit_price is not False
+        else False
+    )
+
+    discount = (
+        int(discount)
+        if discount is not False
+        else False
+    )
+
+    total_price = (
+        int(total_price)
+        if total_price is not False
+        else False
+    )
 
 
-    # ============================================================
-    # 2. IF EVERYTHING EXISTS, RETURN IT
-    # ============================================================
+    # --------------------------------------------------------
+    # IMPORTANT:
+    # Negative / invalid values become missing here.
+    # They then continue through the repair pipeline.
+    # --------------------------------------------------------
 
-    values = [
+    (
         quantity,
         unit_price,
         discount,
         total_price
-    ]
+    ) = invalidate_qudt_values(
+        quantity,
+        unit_price,
+        discount,
+        total_price,
+        logs_df
+    )
 
-    if all(value is not False for value in values):
-        return values
 
+    # --------------------------------------------------------
+    # Calculation helpers
+    # --------------------------------------------------------
 
-    # ============================================================
-    # HELPER: CALCULATE TOTAL PRICE
-    # ============================================================
+    def calculate_total(q, p, d):
 
-    def calculate_total(quantity, unit_price, discount):
+        if (
+            q is False
+            or p is False
+            or d is False
+        ):
+            return None
 
         return round(
-            quantity *
-            unit_price *
-            (1 - discount / 100)
+            q * p * (1 - d / 100)
         )
 
 
-    # ============================================================
-    # HELPER: CALCULATE UNIT PRICE
-    # ============================================================
+    def calculate_unit_price(q, total, d):
 
-    def calculate_unit_price(quantity, total_price, discount):
-
-        if quantity == 0:
+        if (
+            q is False
+            or q is None
+            or q == 0
+        ):
             return None
 
-        divisor = quantity * (1 - discount / 100)
+        if (
+            total is False
+            or d is False
+        ):
+            return None
+
+
+        divisor = q * (1 - d / 100)
+
 
         if divisor == 0:
             return None
 
-        return round(total_price / divisor)
 
-    # ============================================================
-    # HELPER: Date handling
-    # ============================================================
-    def parse_jalali_date(date_string):
-        try:
-            return jdatetime.datetime.strptime(
-                str(date_string).strip(),
-                "%Y-%m-%d"
-            ).date()
-        except (ValueError, TypeError):
+        return round(
+            total / divisor
+        )
+
+
+    def calculate_quantity(total, p, d):
+
+        if (
+            total is False
+            or p is False
+            or p is None
+            or p == 0
+        ):
             return None
-    # ============================================================
-    # HELPER: CALCULATE QUANTITY
-    # ============================================================
 
-    def calculate_quantity(total_price, unit_price, discount):
+        if d is False:
+            return None
 
-        divisor = unit_price * (1 - discount / 100)
+
+        divisor = p * (1 - d / 100)
+
 
         if divisor == 0:
             return None
 
-        return round(total_price / divisor)
+
+        return round(
+            total / divisor
+        )
 
 
-    # ============================================================
-    # 3. IF ONLY ONE VALUE IS MISSING
-    # ============================================================
+    def calculate_discount(q, p, total):
 
-    missing_count = sum(
-        value is False
-        for value in values
-    )
+        if (
+            q is False
+            or q is None
+            or q == 0
+        ):
+            return None
 
-    if missing_count == 1:
+        if (
+            p is False
+            or p is None
+            or p == 0
+        ):
+            return None
 
-        # Missing quantity
-        if quantity is False:
-            quantity = calculate_quantity(
-                total_price,
-                unit_price,
-                discount
-            )
-            logs.loc[len(logs)] = {
-                    "date": datetime.now(),
-                    "modified_field": "quantity",
-                    "before": "",
-                    "after": quantity,
-                    "flag": "CALCULATED"
-            }
+        if total is False:
+            return None
 
-        # Missing unit price
-        elif unit_price is False:
-            unit_price = calculate_unit_price(
-                quantity,
-                total_price,
-                discount
-            )
-            logs.loc[len(logs)] = {
-                    "date": datetime.now(),
-                    "modified_field": "unit_price_toman",
-                    "before": "",
-                    "after": unit_price,
-                    "flag": "CALCULATED"
-            }
 
-        # Missing discount
-        elif discount is False:
+        discount = (
+            1 -
+            total / (q * p)
+        ) * 100
 
-            if quantity * unit_price != 0:
 
-                discount = round(
-                    (1 - total_price / (quantity * unit_price))
-                    * 100
-                )
-                logs.loc[len(logs)] = {
-                    "date": datetime.now(),
-                    "modified_field": "discount_percent",
-                    "before": "",
-                    "after": discount,
-                    "flag": "CALCULATED"
-                }
+        discount = round(discount)
 
-        # Missing total price
-        elif total_price is False:
-            total_price = calculate_total(
-                quantity,
-                unit_price,
-                discount
-            )
-            logs.loc[len(logs)] = {
-                    "date": datetime.now(),
-                    "modified_field": "total_price_toman",
-                    "before": "",
-                    "after": total_price,
-                    "flag": "CALCULATED"
-            }
 
-        values = [
+        # Calculated discount must also be valid
+
+        if not 0 <= discount <= 100:
+            return None
+
+
+        return discount
+
+
+    # --------------------------------------------------------
+    # Helper for checking if all values exist
+    # --------------------------------------------------------
+
+    def get_values():
+
+        return [
             quantity,
             unit_price,
             discount,
             total_price
         ]
 
-        # Quantity and total price are mandatory
-        if quantity is False or quantity is None:
-            return False
 
-        if total_price is False or total_price is None:
-            return False
+    # --------------------------------------------------------
+    # 2. All values exist
+    # --------------------------------------------------------
+
+    values = get_values()
+
+
+    if all(
+        value is not False and value is not None
+        for value in values
+    ):
 
         return values
 
 
-    # ============================================================
-    # 4. MULTIPLE VALUES ARE MISSING
-    # ============================================================
-
-    product_id = row["product_id"]
-
-    # Make a copy so we don't modify the original dataframe
-    reference_df = sales_df.copy()
-
-    # Only use the same product
-    reference_df = reference_df[
-        reference_df["product_id"] == product_id
-    ]
-
-
-    # ============================================================
-    # 5. RECOVER UNIT PRICE
-    # ============================================================
-
-    if unit_price is False and not reference_df.empty:
-
-        # Convert date columns
-        reference_df["_date"] = pd.to_datetime(
-            reference_df["date"],
-            errors="coerce"
-        )
-
-        current_date = pd.to_datetime(
-            row["date"],
-            errors="coerce"
-        )
-
-        if pd.notna(current_date):
-
-            # Look within 30 days
-            nearby = reference_df[
-                (
-                    reference_df["_date"]
-                    .sub(current_date)
-                    .abs()
-                    <= pd.Timedelta(days=30)
-                )
-            ]
-
-        else:
-            nearby = reference_df
-
-        prices = pd.to_numeric(
-            nearby["unit_price_toman"],
-            errors="coerce"
-        ).dropna()
-
-        if not prices.empty:
-
-            unit_price = round(
-                prices.median()
-            )
-            logs.loc[len(logs)] = {
-                    "date": datetime.now(),
-                    "modified_field": "unit_price_toman",
-                    "before": "",
-                    "after": unit_price,
-                    "flag": "IMPUTED"
-            }
-
-        else:
-            logs.loc[len(logs)] = {
-                    "date": datetime.now(),
-                    "modified_field": "unit_price_toman",
-                    "before": "",
-                    "after": unit_price,
-                    "flag": "UNKNOWN"
-            }
-
-
-    # ============================================================
-    # 6. RECOVER DISCOUNT
-    # ============================================================
-
-    if discount is False and not reference_df.empty:
-
-        # --------------------------------------------------------
-        # Try using similar quantity
-        # --------------------------------------------------------
-
-        if quantity is not False:
-
-            reference_df["_quantity"] = pd.to_numeric(
-                reference_df["quantity"],
-                errors="coerce"
-            )
-
-            # Similar = within ±20%
-            min_quantity = quantity * 0.8
-            max_quantity = quantity * 1.2
-
-            similar_quantity = reference_df[
-                (
-                    reference_df["_quantity"]
-                    >= min_quantity
-                )
-                &
-                (
-                    reference_df["_quantity"]
-                    <= max_quantity
-                )
-            ]
-
-            discounts = pd.to_numeric(
-                similar_quantity["discount_percent"],
-                errors="coerce"
-            ).dropna()
-
-            if not discounts.empty:
-
-                discount = round(
-                    discounts.median()
-                )
-                logs.loc[len(logs)] = {
-                    "date": datetime.now(),
-                    "modified_field": "discount_percent",
-                    "before": "",
-                    "after": discount,
-                    "flag": "IMPUTED"
-                }
-            else:
-                logs.loc[len(logs)] = {
-                    "date": datetime.now(),
-                    "modified_field": "discount_percent",
-                    "before": "",
-                    "after": discount,
-                    "flag": "UNKNOWN"
-                }   
-
-        # --------------------------------------------------------
-        # If quantity is unavailable, use total price similarity
-        # --------------------------------------------------------
-
-        if discount is False and total_price is not False:
-
-            reference_df["_total_price"] = pd.to_numeric(
-                reference_df["total_price_toman"],
-                errors="coerce"
-            )
-
-            min_total = total_price * 0.8
-            max_total = total_price * 1.2
-
-            similar_total = reference_df[
-                (
-                    reference_df["_total_price"]
-                    >= min_total
-                )
-                &
-                (
-                    reference_df["_total_price"]
-                    <= max_total
-                )
-            ]
-
-            discounts = pd.to_numeric(
-                similar_total["discount_percent"],
-                errors="coerce"
-            ).dropna()
-
-            if not discounts.empty:
-
-                discount = round(
-                    discounts.median()
-                )
-                logs.loc[len(logs)] = {
-                    "date": datetime.now(),
-                    "modified_field": "discount_percent",
-                    "before": "",
-                    "after": unit_price,
-                    "flag": "IMPUTED"
-                }
-            else:
-                logs.loc[len(logs)] = {
-                    "date": datetime.now(),
-                    "modified_field": "discount_percent",
-                    "before": "",
-                    "after": discount,
-                    "flag": "UNKNOWN"
-                }   
-
-    # ============================================================
-    # 7. RE-CHECK
-    # ============================================================
-
-    values = [
-        quantity,
-        unit_price,
-        discount,
-        total_price
-    ]
+    # --------------------------------------------------------
+    # 3. One missing value
+    # --------------------------------------------------------
 
     missing_count = sum(
-        value is False
+        value is False or value is None
         for value in values
     )
 
 
-    # ============================================================
-    # 8. IF ONLY ONE VALUE IS NOW MISSING, CALCULATE IT
-    # ============================================================
-
     if missing_count == 1:
 
-        # Missing quantity
-        if quantity is False:
+        if quantity is False or quantity is None:
+
             quantity = calculate_quantity(
                 total_price,
                 unit_price,
                 discount
             )
-            logs.loc[len(logs)] = {
-                    "date": datetime.now(),
-                    "modified_field": "quantity",
-                    "before": "",
-                    "after": quantity,
-                    "flag": "CALCULATED"
-            }
 
-        # Missing unit price
-        elif unit_price is False:
+            if quantity is not None:
+
+                add_log(
+                    logs_df,
+                    "quantity",
+                    "",
+                    quantity,
+                    "CALCULATED"
+                )
+
+
+        elif unit_price is False or unit_price is None:
+
             unit_price = calculate_unit_price(
                 quantity,
                 total_price,
                 discount
             )
-            logs.loc[len(logs)] = {
-                    "date": datetime.now(),
-                    "modified_field": "unit_price_toman",
-                    "before": "",
-                    "after": unit_price,
-                    "flag": "CALCULATED"
-            }
 
-        # Missing discount
-        elif discount is False:
+            if unit_price is not None:
 
-            if quantity * unit_price != 0:
-
-                discount = round(
-                    (1 - total_price / (quantity * unit_price))
-                    * 100
+                add_log(
+                    logs_df,
+                    "unit_price_toman",
+                    "",
+                    unit_price,
+                    "CALCULATED"
                 )
-                logs.loc[len(logs)] = {
-                    "date": datetime.now(),
-                    "modified_field": "discount_percent",
-                    "before": "",
-                    "after": discount,
-                    "flag": "CALCULATED"
-                }
 
-        # Missing total price
-        elif total_price is False:
+
+        elif discount is False or discount is None:
+
+            discount = calculate_discount(
+                quantity,
+                unit_price,
+                total_price
+            )
+
+            if discount is not None:
+
+                add_log(
+                    logs_df,
+                    "discount_percent",
+                    "",
+                    discount,
+                    "CALCULATED"
+                )
+
+
+        elif total_price is False or total_price is None:
+
             total_price = calculate_total(
                 quantity,
                 unit_price,
                 discount
             )
-            logs.loc[len(logs)] = {
-                    "date": datetime.now(),
-                    "modified_field": "total_price_toman",
-                    "before": "",
-                    "after": total_price,
-                    "flag": "CALCULATED"
-            }
+
+            if total_price is not None:
+
+                add_log(
+                    logs_df,
+                    "total_price_toman",
+                    "",
+                    total_price,
+                    "CALCULATED"
+                )
 
 
-    # ============================================================
-    # 9. RECOVER QUANTITY
-    # ============================================================
+        # ----------------------------------------------------
+        # IMPORTANT:
+        # Validate ALL four fields before returning.
+        # ----------------------------------------------------
 
-    if quantity is False and not reference_df.empty:
+        values = get_values()
 
-        # If total price and/or discount are available,
-        # find similar transactions.
 
-        reference_df["_total_price"] = pd.to_numeric(
-            reference_df["total_price_toman"],
+        if any(
+            value is False or value is None
+            for value in values
+        ):
+
+            # Don't return prematurely.
+            # Continue to reference-data recovery below.
+
+            pass
+
+        else:
+
+            return values
+
+
+    # ========================================================
+    # 4. REFERENCE DATA
+    # ========================================================
+
+    product_id = str(
+        row["product_id"]
+    ).strip()
+
+
+    reference_df = sales_df[
+        sales_df["product_id"]
+        .astype(str)
+        .str.strip()
+        == product_id
+    ].copy()
+
+
+    # --------------------------------------------------------
+    # Convert reference numeric columns once
+    # --------------------------------------------------------
+
+    if not reference_df.empty:
+
+        reference_df["_quantity"] = pd.to_numeric(
+            reference_df["quantity"],
+            errors="coerce"
+        )
+
+        reference_df["_unit_price"] = pd.to_numeric(
+            reference_df["unit_price_toman"],
             errors="coerce"
         )
 
@@ -751,15 +1236,316 @@ def check_QUDT(row, sales_df, logs_df):
             errors="coerce"
         )
 
+        reference_df["_total_price"] = pd.to_numeric(
+            reference_df["total_price_toman"],
+            errors="coerce"
+        )
+
+
+    # ========================================================
+    # 5. RECOVER UNIT PRICE
+    # ========================================================
+
+    if (
+        unit_price is False
+        and not reference_df.empty
+    ):
+
+        nearby = reference_df
+
+
+        current_date = parse_jalali_date(
+            row["date"]
+        )
+
+
+        if current_date is not None:
+
+            reference_df["_jdate"] = (
+                reference_df["date"]
+                .apply(parse_jalali_date)
+            )
+
+
+            reference_df["_date_distance"] = (
+                reference_df["_jdate"]
+                .apply(
+                    lambda d:
+                    abs(
+                        d.toordinal()
+                        - current_date.toordinal()
+                    )
+                    if d is not None
+                    else None
+                )
+            )
+
+
+            nearby = reference_df[
+                reference_df["_date_distance"].notna()
+                &
+                (
+                    reference_df["_date_distance"]
+                    <= 30
+                )
+            ]
+
+
+        prices = nearby["_unit_price"].dropna()
+
+
+        if not prices.empty:
+
+            unit_price = round(
+                prices.median()
+            )
+
+
+            add_log(
+                logs_df,
+                "unit_price_toman",
+                "",
+                unit_price,
+                "IMPUTED"
+            )
+
+        else:
+
+            add_log(
+                logs_df,
+                "unit_price_toman",
+                "",
+                "",
+                "UNKNOWN"
+            )
+
+
+    # ========================================================
+    # 6. RECOVER DISCOUNT
+    # ========================================================
+
+    if (
+        discount is False
+        and not reference_df.empty
+    ):
+
+        # ----------------------------------------------------
+        # Similar quantity
+        # ----------------------------------------------------
+
+        if quantity is not False:
+
+            similar = reference_df[
+                reference_df["_quantity"].notna()
+                &
+                (
+                    reference_df["_quantity"]
+                    >= quantity * 0.8
+                )
+                &
+                (
+                    reference_df["_quantity"]
+                    <= quantity * 1.2
+                )
+            ]
+
+
+            discounts = (
+                similar["_discount"]
+                .dropna()
+            )
+
+
+            if not discounts.empty:
+
+                discount = round(
+                    discounts.median()
+                )
+
+
+                add_log(
+                    logs_df,
+                    "discount_percent",
+                    "",
+                    discount,
+                    "IMPUTED"
+                )
+
+
+        # ----------------------------------------------------
+        # If quantity is unavailable,
+        # use similar total price
+        # ----------------------------------------------------
+
+        if (
+            discount is False
+            and total_price is not False
+        ):
+
+            similar = reference_df[
+                reference_df["_total_price"].notna()
+                &
+                (
+                    reference_df["_total_price"]
+                    >= total_price * 0.8
+                )
+                &
+                (
+                    reference_df["_total_price"]
+                    <= total_price * 1.2
+                )
+            ]
+
+
+            discounts = (
+                similar["_discount"]
+                .dropna()
+            )
+
+
+            if not discounts.empty:
+
+                discount = round(
+                    discounts.median()
+                )
+
+
+                add_log(
+                    logs_df,
+                    "discount_percent",
+                    "",
+                    discount,
+                    "IMPUTED"
+                )
+
+
+        if discount is False:
+
+            add_log(
+                logs_df,
+                "discount_percent",
+                "",
+                "",
+                "UNKNOWN"
+            )
+
+
+    # ========================================================
+    # 7. Recalculate if only one remains missing
+    # ========================================================
+
+    values = get_values()
+
+
+    missing_count = sum(
+        value is False or value is None
+        for value in values
+    )
+
+
+    if missing_count == 1:
+
+        if quantity is False or quantity is None:
+
+            quantity = calculate_quantity(
+                total_price,
+                unit_price,
+                discount
+            )
+
+
+            if quantity is not None:
+
+                add_log(
+                    logs_df,
+                    "quantity",
+                    "",
+                    quantity,
+                    "CALCULATED"
+                )
+
+
+        elif unit_price is False or unit_price is None:
+
+            unit_price = calculate_unit_price(
+                quantity,
+                total_price,
+                discount
+            )
+
+
+            if unit_price is not None:
+
+                add_log(
+                    logs_df,
+                    "unit_price_toman",
+                    "",
+                    unit_price,
+                    "CALCULATED"
+                )
+
+
+        elif discount is False or discount is None:
+
+            discount = calculate_discount(
+                quantity,
+                unit_price,
+                total_price
+            )
+
+
+            if discount is not None:
+
+                add_log(
+                    logs_df,
+                    "discount_percent",
+                    "",
+                    discount,
+                    "CALCULATED"
+                )
+
+
+        elif total_price is False or total_price is None:
+
+            total_price = calculate_total(
+                quantity,
+                unit_price,
+                discount
+            )
+
+
+            if total_price is not None:
+
+                add_log(
+                    logs_df,
+                    "total_price_toman",
+                    "",
+                    total_price,
+                    "CALCULATED"
+                )
+
+
+    # ========================================================
+    # 8. RECOVER QUANTITY
+    # ========================================================
+
+    if (
+        quantity is False
+        and not reference_df.empty
+    ):
+
         similar = reference_df.copy()
 
-        # --------------------------------------------------------
+
+        # ----------------------------------------------------
         # Similar total price
-        # --------------------------------------------------------
+        # ----------------------------------------------------
 
         if total_price is not False:
 
             similar = similar[
+                similar["_total_price"].notna()
+                &
                 (
                     similar["_total_price"]
                     >= total_price * 0.8
@@ -771,82 +1557,95 @@ def check_QUDT(row, sales_df, logs_df):
                 )
             ]
 
-        # --------------------------------------------------------
+
+        # ----------------------------------------------------
         # Similar discount
-        # --------------------------------------------------------
+        # ----------------------------------------------------
 
         if discount is not False:
 
             similar = similar[
-                similar["_discount"] == discount
+                similar["_discount"].notna()
+                &
+                (
+                    similar["_discount"]
+                    == discount
+                )
             ]
 
-        quantities = pd.to_numeric(
-            similar["quantity"],
-            errors="coerce"
-        ).dropna()
 
-        # --------------------------------------------------------
-        # Use median of similar transactions
-        # --------------------------------------------------------
+        quantities = (
+            similar["_quantity"]
+            .dropna()
+        )
+
 
         if not quantities.empty:
 
             quantity = round(
                 quantities.median()
             )
-            logs.loc[len(logs)] = {
-                    "date": datetime.now(),
-                    "modified_field": "quantity",
-                    "before": "",
-                    "after": quantity,
-                    "flag": "IMPUTED"
-            }
 
-        # --------------------------------------------------------
-        # If no similar records, use all same-product records
-        # --------------------------------------------------------
+
+            add_log(
+                logs_df,
+                "quantity",
+                "",
+                quantity,
+                "IMPUTED"
+            )
+
 
         else:
 
-            quantities = pd.to_numeric(
-                reference_df["quantity"],
-                errors="coerce"
-            ).dropna()
+            # ------------------------------------------------
+            # Fallback:
+            # all same-product quantities
+            # ------------------------------------------------
+
+            quantities = (
+                reference_df["_quantity"]
+                .dropna()
+            )
+
 
             if not quantities.empty:
 
                 quantity = round(
                     quantities.median()
                 )
-                logs.loc[len(logs)] = {
-                    "date": datetime.now(),
-                    "modified_field": "quantity",
-                    "before": "",
-                    "after": quantity,
-                    "flag": "IMPUTED"
-                }
 
 
-    # ============================================================
-    # 10. RECOVER TOTAL PRICE
-    # ============================================================
+                add_log(
+                    logs_df,
+                    "quantity",
+                    "",
+                    quantity,
+                    "IMPUTED"
+                )
 
-    if total_price is False and not reference_df.empty:
 
-        reference_df["_quantity"] = pd.to_numeric(
-            reference_df["quantity"],
-            errors="coerce"
-        )
+    # ========================================================
+    # 9. RECOVER TOTAL PRICE
+    # ========================================================
+
+    if (
+        total_price is False
+        and not reference_df.empty
+    ):
 
         similar = reference_df.copy()
 
-        # Same product already guaranteed
 
+        # ----------------------------------------------------
         # Similar quantity
+        # ----------------------------------------------------
+
         if quantity is not False:
 
             similar = similar[
+                similar["_quantity"].notna()
+                &
                 (
                     similar["_quantity"]
                     >= quantity * 0.8
@@ -858,28 +1657,127 @@ def check_QUDT(row, sales_df, logs_df):
                 )
             ]
 
-        totals = pd.to_numeric(
-            similar["total_price_toman"],
-            errors="coerce"
-        ).dropna()
+
+        totals = (
+            similar["_total_price"]
+            .dropna()
+        )
+
 
         if not totals.empty:
 
             total_price = round(
                 totals.median()
             )
-            logs.loc[len(logs)] = {
-                    "date": datetime.now(),
-                    "modified_field": "total_price_toman",
-                    "before": "",
-                    "after": total_price,
-                    "flag": "IMPUTED"
-            }
 
 
-    # ============================================================
-    # 11. FINAL CALCULATION
-    # ============================================================
+            add_log(
+                logs_df,
+                "total_price_toman",
+                "",
+                total_price,
+                "IMPUTED"
+            )
+
+
+    # ========================================================
+    # 10. FINAL CALCULATION
+    # ========================================================
+
+    values = get_values()
+
+
+    missing_count = sum(
+        value is False or value is None
+        for value in values
+    )
+
+
+    if missing_count == 1:
+
+        if quantity is False or quantity is None:
+
+            quantity = calculate_quantity(
+                total_price,
+                unit_price,
+                discount
+            )
+
+
+            if quantity is not None:
+
+                add_log(
+                    logs_df,
+                    "quantity",
+                    "",
+                    quantity,
+                    "CALCULATED"
+                )
+
+
+        elif unit_price is False or unit_price is None:
+
+            unit_price = calculate_unit_price(
+                quantity,
+                total_price,
+                discount
+            )
+
+
+            if unit_price is not None:
+
+                add_log(
+                    logs_df,
+                    "unit_price_toman",
+                    "",
+                    unit_price,
+                    "CALCULATED"
+                )
+
+
+        elif discount is False or discount is None:
+
+            discount = calculate_discount(
+                quantity,
+                unit_price,
+                total_price
+            )
+
+
+            if discount is not None:
+
+                add_log(
+                    logs_df,
+                    "discount_percent",
+                    "",
+                    discount,
+                    "CALCULATED"
+                )
+
+
+        elif total_price is False or total_price is None:
+
+            total_price = calculate_total(
+                quantity,
+                unit_price,
+                discount
+            )
+
+
+            if total_price is not None:
+
+                add_log(
+                    logs_df,
+                    "total_price_toman",
+                    "",
+                    total_price,
+                    "CALCULATED"
+                )
+
+
+    # ========================================================
+    # 11. FINAL VALIDATION
+    # ========================================================
 
     values = [
         quantity,
@@ -888,123 +1786,64 @@ def check_QUDT(row, sales_df, logs_df):
         total_price
     ]
 
-    missing_count = sum(
-        value is False or value is None
-        for value in values
-    )
 
-    # If exactly one remains, calculate it
-    if missing_count == 1:
+    # Quantity and total price are mandatory
 
-        if quantity is False or quantity is None:
+    if (
+        quantity is False
+        or quantity is None
+    ):
 
-            if (
-                total_price is not False
-                and unit_price is not False
-                and discount is not False
-            ):
-                quantity = calculate_quantity(
-                    total_price,
-                    unit_price,
-                    discount
-                )
-                logs.loc[len(logs)] = {
-                    "date": datetime.now(),
-                    "modified_field": "quantity",
-                    "before": "",
-                    "after": quantity,
-                    "flag": "CALCULATED"
-                }
-
-        elif unit_price is False or unit_price is None:
-
-            if (
-                quantity is not False
-                and total_price is not False
-                and discount is not False
-            ):
-                unit_price = calculate_unit_price(
-                    quantity,
-                    total_price,
-                    discount
-                )
-                logs.loc[len(logs)] = {
-                    "date": datetime.now(),
-                    "modified_field": "unit_price_toman",
-                    "before": "",
-                    "after": unit_price,
-                    "flag": "CALCULATED"
-                }
-
-        elif discount is False or discount is None:
-
-            if (
-                quantity is not False
-                and unit_price is not False
-                and total_price is not False
-            ):
-                if quantity * unit_price != 0:
-
-                    discount = round(
-                        (
-                            1 -
-                            total_price /
-                            (quantity * unit_price)
-                        ) * 100
-                    )
-                    logs.loc[len(logs)] = {
-                    "date": datetime.now(),
-                    "modified_field": "discount_percent",
-                    "before": "",
-                    "after": discount,
-                    "flag": "CALCULATED"
-                    }
-
-        elif total_price is False or total_price is None:
-
-            if (
-                quantity is not False
-                and unit_price is not False
-                and discount is not False
-            ):
-                total_price = calculate_total(
-                    quantity,
-                    unit_price,
-                    discount
-                )
-                logs.loc[len(logs)] = {
-                    "date": datetime.now(),
-                    "modified_field": "total_price_toman",
-                    "before": "",
-                    "after": total_price,
-                    "flag": "CALCULATED"
-                }
-
-
-    # ============================================================
-    # 12. FINAL VALIDATION
-    # ============================================================
-
-    if quantity is False or quantity is None:
-        return False
-
-    if total_price is False or total_price is None:
         return False
 
 
-    # If unit price or discount still cannot be recovered,
-    # return False as well because we cannot produce a
-    # complete QUDT record.
-    if unit_price is False or unit_price is None:
+    if (
+        total_price is False
+        or total_price is None
+    ):
+
         return False
 
-    if discount is False or discount is None:
+
+    # Unit price and discount are also required
+    # for a complete QUDT record
+
+    if (
+        unit_price is False
+        or unit_price is None
+    ):
+
         return False
 
 
-    # ============================================================
-    # 13. RETURN
-    # ============================================================
+    if (
+        discount is False
+        or discount is None
+    ):
+
+        return False
+
+
+    # --------------------------------------------------------
+    # Final validity checks
+    # --------------------------------------------------------
+
+    if quantity < 0:
+        return False
+
+    if unit_price < 0:
+        return False
+
+    if total_price < 0:
+        return False
+
+    if not 0 <= discount <= 100:
+        return False
+
+
+    # --------------------------------------------------------
+    # Return
+    # --------------------------------------------------------
 
     return [
         int(quantity),
@@ -1013,75 +1852,320 @@ def check_QUDT(row, sales_df, logs_df):
         int(total_price)
     ]
 
+
+# ============================================================
+# CONSISTENCY CHECK
+# ============================================================
+
 def is_consistent(
     quantity,
     unit_price_toman,
     discount_percent,
-    total_price_toman
+    total_price_toman,
+    logs
 ):
+
+    # --------------------------------------------------------
+    # Safety validation
+    # --------------------------------------------------------
+
+    if any(
+        value is None or value is False
+        for value in [
+            quantity,
+            unit_price_toman,
+            discount_percent,
+            total_price_toman
+        ]
+    ):
+
+        return False
+
+
     expected_total = round(
         quantity
         * unit_price_toman
         * (1 - discount_percent / 100)
     )
 
-    difference_percent = abs(
-        total_price_toman - expected_total
-    ) / expected_total * 100
 
-    # Allow up to 5% difference
+    # --------------------------------------------------------
+    # Avoid division by zero
+    # --------------------------------------------------------
+
+    if expected_total == 0:
+
+        consistent = (
+            total_price_toman == 0
+        )
+
+
+        if not consistent:
+
+            add_log(
+                logs,
+                "total_price_toman",
+                total_price_toman,
+                total_price_toman,
+                "INCONSISTENT"
+            )
+
+
+        return consistent
+
+
+    # --------------------------------------------------------
+    # Difference percentage
+    # --------------------------------------------------------
+
+    difference_percent = (
+        abs(
+            total_price_toman
+            - expected_total
+        )
+        / abs(expected_total)
+        * 100
+    )
+
+
+    # --------------------------------------------------------
+    # 5% tolerance
+    # --------------------------------------------------------
+
     if difference_percent > 5:
-        logs.loc[len(logs)] = {
-                    "date": datetime.now(),
-                    "modified_field": "total_price_toman",
-                    "before": total_price_toman,
-                    "after": total_price_toman,
-                    "flag": "INCONSISTENT"
-                }
+
+        add_log(
+            logs,
+            "total_price_toman",
+            total_price_toman,
+            total_price_toman,
+            "INCONSISTENT"
+        )
+
         return False
+
 
     return True
 
-sales = pd.read_csv(SALES_FILE)
-print(sales.head())
-clean_sales = sales.copy()
-clean_sales = clean_sales.iloc[0:0]
-logs = pd.read_csv(LOGS_FILE)
-products = pd.read_csv(PRODUCTS_FILE)
-distributions = pd.read_csv(DISTRIBUTIONS_FILE)
+
+# ============================================================
+# LOAD DATA
+# ============================================================
+
+sales = pd.read_csv(
+    SALES_FILE,
+    dtype=str
+)
 
 
-sale_id=0
-thedate=""
-product_id=""
-distribution_id=""
-quantity=0
-unit_price_toman=0
-discount_percent=0
-total_price_toman=0
-results = []
-consistency = True
+products = pd.read_csv(
+    PRODUCTS_FILE,
+    dtype=str
+)
+
+
+distributions = pd.read_csv(
+    DISTRIBUTIONS_FILE,
+    dtype=str
+)
+
+
+logs = pd.read_csv(
+    LOGS_FILE
+)
+
+
+# ============================================================
+# PREPARE CLEAN DATAFRAME
+# ============================================================
+
+clean_sales = sales.iloc[0:0].copy()
+
+
+# Make sure the output column exists
+
+clean_sales["is_consistent"] = pd.Series(
+    dtype=bool
+)
+
+
+# ============================================================
+# PROCESS SALES
+# ============================================================
+
 for index, row in sales.iterrows():
-    sale_id = check_sale_id(clean_sales, row, logs)
-    thedate = check_date(row, logs)
-    product_id = check_product_id(row, products, logs)
-    distribution_id = check_distribution_id(row, distributions, logs)
-    results = check_QUDT(row, sales, logs)
+
+    # --------------------------------------------------------
+    # Sale ID
+    # --------------------------------------------------------
+
+    sale_id = check_sale_id(
+        clean_sales,
+        row,
+        logs
+    )
+
+
+    # --------------------------------------------------------
+    # IMPORTANT:
+    # Duplicates are intentionally KEPT.
+    #
+    # check_sale_id returns the existing ID for exact
+    # duplicates instead of False.
+    # --------------------------------------------------------
+
+
+    # --------------------------------------------------------
+    # Date
+    # --------------------------------------------------------
+
+    thedate = check_date(
+        row,
+        logs
+    )
+
+
+    # --------------------------------------------------------
+    # Product
+    # --------------------------------------------------------
+
+    product_id = check_product_id(
+        row,
+        products,
+        logs
+    )
+
+
+    # --------------------------------------------------------
+    # Distribution
+    # --------------------------------------------------------
+
+    distribution_id = check_distribution_id(
+        row,
+        distributions,
+        logs
+    )
+
+
+    # --------------------------------------------------------
+    # QUDT
+    # --------------------------------------------------------
+
+    # Pass the original row because the reference data
+    # should come from the original sales dataset.
+
+    results = check_QUDT(
+        row,
+        sales,
+        logs
+    )
+
+
+    # --------------------------------------------------------
+    # QUDT could not be recovered
+    # --------------------------------------------------------
+
+    if results is False:
+
+        add_log(
+            logs,
+            "quantity/unit_price/discount/total_price",
+            "",
+            "",
+            "UNKNOWN"
+        )
+
+        continue
+
+
     quantity = results[0]
     unit_price_toman = results[1]
     discount_percent = results[2]
     total_price_toman = results[3]
-    consistency = is_consistent(quantity, unit_price_toman, discount_percent, total_price_toman)
+
+
+    # --------------------------------------------------------
+    # Consistency
+    # --------------------------------------------------------
+
+    consistency = is_consistent(
+        quantity,
+        unit_price_toman,
+        discount_percent,
+        total_price_toman,
+        logs
+    )
+
+
+    # --------------------------------------------------------
+    # Add clean row
+    # --------------------------------------------------------
+
     clean_sales.loc[len(clean_sales)] = {
-    "sale_id": sale_id,
-    "date": thedate,
-    "product_id": product_id,
-    "distribution_ID": distribution_id,
-    "quantity": quantity,
-    "unit_price_toman": unit_price_toman,
-    "discount_percent": discount_percent,
-    "total_price_toman": total_price_toman,
-    "is_consistent": consistency
+
+        "sale_id": sale_id,
+
+        "date": thedate,
+
+        "product_id": product_id,
+
+        "distribution_id": distribution_id,
+
+        "quantity": quantity,
+
+        "unit_price_toman": unit_price_toman,
+
+        "discount_percent": discount_percent,
+
+        "total_price_toman": total_price_toman,
+
+        "is_consistent": consistency
     }
 
-print(clean_sales.head())
+
+# ============================================================
+# SAVE CLEAN DATA
+# ============================================================
+
+clean_sales.to_csv(
+    CLEAN_SALES_FILE,
+    index=False,
+    encoding="utf-8-sig"
+)
+
+
+# ============================================================
+# SAVE LOGS
+# ============================================================
+
+logs.to_csv(
+    LOGS_FILE,
+    index=False,
+    encoding="utf-8-sig"
+)
+
+
+# ============================================================
+# SUMMARY
+# ============================================================
+
+print(
+    f"Original rows: {len(sales):,}"
+)
+
+print(
+    f"Clean rows: {len(clean_sales):,}"
+)
+
+print(
+    f"Removed rows: "
+    f"{len(sales) - len(clean_sales):,}"
+)
+
+print(
+    f"Logs: {len(logs):,}"
+)
+
+print(
+    f"Clean file: {CLEAN_SALES_FILE}"
+)
