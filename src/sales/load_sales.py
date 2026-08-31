@@ -1,4 +1,5 @@
 import pandas as pd
+import jdatetime
 from sqlalchemy import create_engine
 
 
@@ -18,7 +19,7 @@ engine = create_engine(DATABASE_URL)
 # 2. Read CSV
 # ==========================================
 
-CSV_PATH = "data/sales.csv"
+CSV_PATH = "data/clean_sales.csv"
 
 df = pd.read_csv(CSV_PATH)
 
@@ -35,10 +36,30 @@ df = df.rename(columns={
 
 
 # ==========================================
-# 4. Convert data types
+# 4. Convert Jalali date → Gregorian date
 # ==========================================
 
-df["sale_date"] = pd.to_datetime(df["sale_date"]).dt.date
+def jalali_to_gregorian(date):
+    if pd.isna(date):
+        return None
+
+    date = str(date).strip()
+
+    year, month, day = map(int, date.split("-"))
+
+    return jdatetime.date(
+        year,
+        month,
+        day
+    ).togregorian()
+
+
+df["sale_date"] = df["sale_date"].apply(jalali_to_gregorian)
+
+
+# ==========================================
+# 5. Convert data types
+# ==========================================
 
 df["sale_id"] = df["sale_id"].astype("int64")
 df["quantity"] = df["quantity"].astype("int64")
@@ -48,7 +69,27 @@ df["total_price_rial"] = df["total_price_rial"].astype("int64")
 
 
 # ==========================================
-# 5. Load data into PostgreSQL
+# 6. Remove data-cleaning validation column
+# ==========================================
+
+if "is_consistent" in df.columns:
+    df = df.drop(columns=["is_consistent"])
+
+
+# ==========================================
+# 7. Show sample before loading
+# ==========================================
+
+print("\nSample data:")
+print(df.head())
+
+print("\nDate range:")
+print(f"From: {df['sale_date'].min()}")
+print(f"To:   {df['sale_date'].max()}")
+
+
+# ==========================================
+# 8. Load data into PostgreSQL
 # ==========================================
 
 df.to_sql(
@@ -60,7 +101,7 @@ df.to_sql(
 
 
 # ==========================================
-# 6. Finish
+# 9. Finish
 # ==========================================
 
-print(f"Successfully loaded {len(df)} rows into fact_sales.")
+print(f"\nSuccessfully loaded {len(df)} rows into fact_sales.")
