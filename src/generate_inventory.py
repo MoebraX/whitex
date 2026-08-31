@@ -1,11 +1,15 @@
 import csv
 import random
+from pathlib import Path
 from datetime import date, timedelta
 from collections import defaultdict
 
-PRODUCTS_FILE = "products.csv"
-REGIONS_FILE = "distributors.csv"
-OUTPUT_FILE = "inventory.csv"
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+LOGS_FILE = BASE_DIR / "data" / "data_cleaning_logs.csv"
+PRODUCTS_FILE = BASE_DIR / "data" / "products.csv"
+REGIONS_FILE = BASE_DIR / "data" / "distributions.csv"
+OUTPUT_FILE = BASE_DIR / "data" / "inventory.csv"
 
 START_DATE = date(2025, 8, 24)
 END_DATE = date(2026, 8, 23)
@@ -121,10 +125,10 @@ for product in products:
 
     for region in regions:
 
-        Distribution_ID = region["Distribution_ID"]
+        distribution_id = region["distribution_id"]
 
         region_factor = REGION_SIZE.get(
-            Distribution_ID,
+            distribution_id,
             1.0
         )
 
@@ -193,7 +197,7 @@ for product in products:
             inventory.append({
                 "product_id": product_id,
                 "date": current_date.isoformat(),
-                "Distribution_ID": Distribution_ID,
+                "distribution_id": distribution_id,
                 "stock_quantity": current_stock
             })
 
@@ -245,7 +249,7 @@ for product in products:
 fieldnames = [
     "product_id",
     "date",
-    "Distribution_ID",
+    "distribution_id",
     "stock_quantity",
 ]
 

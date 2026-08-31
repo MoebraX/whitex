@@ -1,5 +1,5 @@
 from pathlib import Path
-from datetime import datetime
+import datetime
 import re
 
 import pandas as pd
@@ -43,10 +43,11 @@ CLEAN_SALES_FILE = BASE_DIR / "data" / "clean_sales.csv"
 # LOGGING
 # ============================================================
 
-def add_log(logs, field, before, after, flag):
+def add_log(logs, sale_id, field, before, after, flag):
 
     logs.loc[len(logs)] = {
-        "date": datetime.now(),
+        "sale_id": sale_id,
+        "date": datetime.datetime.now(),
         "modified_field": field,
         "before": before,
         "after": after,
@@ -91,6 +92,7 @@ def check_sale_id(clean_sales, row, logs):
 
         add_log(
             logs,
+            row["sale_id"],
             "sale_id",
             original,
             "",
@@ -117,6 +119,7 @@ def check_sale_id(clean_sales, row, logs):
 
         add_log(
             logs,
+            row["sale_id"],
             "sale_id",
             output,
             cleaned,
@@ -130,6 +133,7 @@ def check_sale_id(clean_sales, row, logs):
 
         add_log(
             logs,
+            row["sale_id"],
             "sale_id",
             original,
             "",
@@ -171,9 +175,9 @@ def check_sale_id(clean_sales, row, logs):
         "product_id",
         "distribution_id",
         "quantity",
-        "unit_price_toman",
+        "unit_price_rial",
         "discount_percent",
-        "total_price_toman"
+        "total_price_rial"
     ]
 
 
@@ -205,6 +209,7 @@ def check_sale_id(clean_sales, row, logs):
 
             add_log(
                 logs,
+                row["sale_id"],
                 "sale_id",
                 output,
                 output,
@@ -237,6 +242,7 @@ def check_sale_id(clean_sales, row, logs):
 
     add_log(
         logs,
+        row["sale_id"],
         "sale_id",
         output,
         str(new_id),
@@ -248,13 +254,13 @@ def check_sale_id(clean_sales, row, logs):
 
 
 # ============================================================
-# JALALI DATE
+# DATE PARSER
 # ============================================================
 
-def parse_jalali_date(value):
+def parse_date(value):
 
     if is_missing(value):
-        return None
+        return None, False
 
     value = str(value).strip()
 
@@ -269,22 +275,49 @@ def parse_jalali_date(value):
 
         try:
 
-            return jdatetime.datetime.strptime(
+            # ------------------------------------------------
+            # Detect Gregorian year
+            # ------------------------------------------------
+
+            year = int(value[:4])
+
+            if 1900 <= year <= 2100:
+
+                gregorian_date = datetime.datetime.strptime(
+                    value,
+                    fmt
+                ).date()
+
+                jalali_date = jdatetime.date.fromgregorian(
+                    date=gregorian_date
+                )
+
+                return jalali_date, True
+
+            # ------------------------------------------------
+            # Treat as Jalali
+            # ------------------------------------------------
+
+            jalali_date = jdatetime.datetime.strptime(
                 value,
                 fmt
             ).date()
 
-        except (ValueError, TypeError):
+            return jalali_date, False
 
+        except (ValueError, TypeError):
             continue
 
-    return None
+    return None, False
 
+
+# ============================================================
+# CHECK DATE
+# ============================================================
 
 def check_date(row, logs):
 
     original = row["date"]
-
 
     # --------------------------------------------------------
     # Missing
@@ -294,6 +327,7 @@ def check_date(row, logs):
 
         add_log(
             logs,
+            row["sale_id"],
             "date",
             original,
             "",
@@ -316,6 +350,7 @@ def check_date(row, logs):
 
         add_log(
             logs,
+            row["sale_id"],
             "date",
             output,
             cleaned,
@@ -326,16 +361,21 @@ def check_date(row, logs):
 
 
     # --------------------------------------------------------
-    # Parse Jalali date
+    # Parse date
     # --------------------------------------------------------
 
-    jdate = parse_jalali_date(output)
+    jdate, was_gregorian = parse_date(output)
 
+
+    # --------------------------------------------------------
+    # Invalid date
+    # --------------------------------------------------------
 
     if jdate is None:
 
         add_log(
             logs,
+            row["sale_id"],
             "date",
             output,
             "",
@@ -346,22 +386,44 @@ def check_date(row, logs):
 
 
     # --------------------------------------------------------
-    # Normalize
+    # Normalize to YYYY-MM-DD
     # --------------------------------------------------------
 
     normalized = jdate.strftime("%Y-%m-%d")
 
-    if normalized != output:
+
+    # --------------------------------------------------------
+    # Gregorian → Jalali
+    # --------------------------------------------------------
+
+    if was_gregorian:
 
         add_log(
             logs,
+            row["sale_id"],
             "date",
             output,
             normalized,
             "TYPE_FIXED"
         )
 
-        output = normalized
+    # --------------------------------------------------------
+    # Jalali format normalization
+    # --------------------------------------------------------
+
+    elif normalized != output:
+
+        add_log(
+            logs,
+            row["sale_id"],
+            "date",
+            output,
+            normalized,
+            "TYPE_FIXED"
+        )
+
+
+    output = normalized
 
 
     # --------------------------------------------------------
@@ -381,6 +443,7 @@ def check_date(row, logs):
 
         add_log(
             logs,
+            row["sale_id"],
             "date",
             output,
             output,
@@ -402,6 +465,7 @@ def check_date(row, logs):
 
         add_log(
             logs,
+            row["sale_id"],
             "date",
             output,
             output,
@@ -410,8 +474,6 @@ def check_date(row, logs):
 
 
     return output
-
-
 # ============================================================
 # PRODUCT ID
 # ============================================================
@@ -425,6 +487,7 @@ def check_product_id(row, products, logs):
 
         add_log(
             logs,
+            row["sale_id"],
             "product_id",
             original,
             "",
@@ -443,6 +506,7 @@ def check_product_id(row, products, logs):
 
         add_log(
             logs,
+            row["sale_id"],
             "product_id",
             output,
             cleaned,
@@ -463,6 +527,7 @@ def check_product_id(row, products, logs):
 
         add_log(
             logs,
+            row["sale_id"],
             "product_id",
             output,
             output,
@@ -486,6 +551,7 @@ def check_distribution_id(row, distributions, logs):
 
         add_log(
             logs,
+            row["sale_id"],
             "distribution_id",
             original,
             "",
@@ -508,6 +574,7 @@ def check_distribution_id(row, distributions, logs):
 
         add_log(
             logs,
+            row["sale_id"],
             "distribution_id",
             output,
             cleaned,
@@ -530,6 +597,7 @@ def check_distribution_id(row, distributions, logs):
 
         add_log(
             logs,
+            row["sale_id"],
             "distribution_id",
             output,
             output,
@@ -557,6 +625,7 @@ def check_isint(input, column_name, logs):
 
         add_log(
             logs,
+            row["sale_id"],
             column_name,
             input,
             "",
@@ -588,6 +657,7 @@ def check_isint(input, column_name, logs):
 
             add_log(
                 logs,
+                row["sale_id"],
                 column_name,
                 input,
                 "",
@@ -604,6 +674,7 @@ def check_isint(input, column_name, logs):
 
             add_log(
                 logs,
+                row["sale_id"],
                 column_name,
                 input,
                 new_output,
@@ -627,6 +698,7 @@ def check_isint(input, column_name, logs):
 
             add_log(
                 logs,
+                row["sale_id"],
                 column_name,
                 input,
                 "",
@@ -712,6 +784,7 @@ def check_isint(input, column_name, logs):
 
                 add_log(
                     logs,
+                    row["sale_id"],
                     column_name,
                     input,
                     "",
@@ -737,6 +810,7 @@ def check_isint(input, column_name, logs):
 
             add_log(
                 logs,
+                row["sale_id"],
                 column_name,
                 input,
                 output,
@@ -758,6 +832,7 @@ def check_isint(input, column_name, logs):
 
         add_log(
             logs,
+            row["sale_id"],
             column_name,
             input,
             output,
@@ -772,6 +847,7 @@ def check_isint(input, column_name, logs):
 
         add_log(
             logs,
+            row["sale_id"],
             column_name,
             input,
             "",
@@ -795,9 +871,9 @@ def invalidate_qudt_values(
 
     values = [
         ("quantity", quantity),
-        ("unit_price_toman", unit_price),
+        ("unit_price_rial", unit_price),
         ("discount_percent", discount),
-        ("total_price_toman", total_price)
+        ("total_price_rial", total_price)
     ]
 
 
@@ -815,6 +891,7 @@ def invalidate_qudt_values(
 
             add_log(
                 logs,
+                row["sale_id"],
                 field,
                 value,
                 "",
@@ -825,13 +902,13 @@ def invalidate_qudt_values(
             if field == "quantity":
                 quantity = False
 
-            elif field == "unit_price_toman":
+            elif field == "unit_price_rial":
                 unit_price = False
 
             elif field == "discount_percent":
                 discount = False
 
-            elif field == "total_price_toman":
+            elif field == "total_price_rial":
                 total_price = False
 
 
@@ -847,6 +924,7 @@ def invalidate_qudt_values(
 
         add_log(
             logs,
+            row["sale_id"],
             "discount_percent",
             discount,
             "",
@@ -881,8 +959,8 @@ def check_QUDT(row, sales_df, logs_df):
     )
 
     unit_price = check_isint(
-        row["unit_price_toman"],
-        "unit_price_toman",
+        row["unit_price_rial"],
+        "unit_price_rial",
         logs_df
     )
 
@@ -893,8 +971,8 @@ def check_QUDT(row, sales_df, logs_df):
     )
 
     total_price = check_isint(
-        row["total_price_toman"],
-        "total_price_toman",
+        row["total_price_rial"],
+        "total_price_rial",
         logs_df
     )
 
@@ -1111,6 +1189,7 @@ def check_QUDT(row, sales_df, logs_df):
 
                 add_log(
                     logs_df,
+                    row["sale_id"],
                     "quantity",
                     "",
                     quantity,
@@ -1130,7 +1209,8 @@ def check_QUDT(row, sales_df, logs_df):
 
                 add_log(
                     logs_df,
-                    "unit_price_toman",
+                    row["sale_id"],
+                    "unit_price_rial",
                     "",
                     unit_price,
                     "CALCULATED"
@@ -1149,6 +1229,7 @@ def check_QUDT(row, sales_df, logs_df):
 
                 add_log(
                     logs_df,
+                    row["sale_id"],
                     "discount_percent",
                     "",
                     discount,
@@ -1168,7 +1249,8 @@ def check_QUDT(row, sales_df, logs_df):
 
                 add_log(
                     logs_df,
-                    "total_price_toman",
+                    row["sale_id"],
+                    "total_price_rial",
                     "",
                     total_price,
                     "CALCULATED"
@@ -1227,7 +1309,7 @@ def check_QUDT(row, sales_df, logs_df):
         )
 
         reference_df["_unit_price"] = pd.to_numeric(
-            reference_df["unit_price_toman"],
+            reference_df["unit_price_rial"],
             errors="coerce"
         )
 
@@ -1237,7 +1319,7 @@ def check_QUDT(row, sales_df, logs_df):
         )
 
         reference_df["_total_price"] = pd.to_numeric(
-            reference_df["total_price_toman"],
+            reference_df["total_price_rial"],
             errors="coerce"
         )
 
@@ -1303,7 +1385,8 @@ def check_QUDT(row, sales_df, logs_df):
 
             add_log(
                 logs_df,
-                "unit_price_toman",
+                row["sale_id"],
+                "unit_price_rial",
                 "",
                 unit_price,
                 "IMPUTED"
@@ -1313,7 +1396,8 @@ def check_QUDT(row, sales_df, logs_df):
 
             add_log(
                 logs_df,
-                "unit_price_toman",
+                row["sale_id"],
+                "unit_price_rial",
                 "",
                 "",
                 "UNKNOWN"
@@ -1365,6 +1449,7 @@ def check_QUDT(row, sales_df, logs_df):
 
                 add_log(
                     logs_df,
+                    row["sale_id"],
                     "discount_percent",
                     "",
                     discount,
@@ -1412,6 +1497,7 @@ def check_QUDT(row, sales_df, logs_df):
 
                 add_log(
                     logs_df,
+                    row["sale_id"],
                     "discount_percent",
                     "",
                     discount,
@@ -1423,6 +1509,7 @@ def check_QUDT(row, sales_df, logs_df):
 
             add_log(
                 logs_df,
+                row["sale_id"],
                 "discount_percent",
                 "",
                 "",
@@ -1458,6 +1545,7 @@ def check_QUDT(row, sales_df, logs_df):
 
                 add_log(
                     logs_df,
+                    row["sale_id"],
                     "quantity",
                     "",
                     quantity,
@@ -1478,7 +1566,8 @@ def check_QUDT(row, sales_df, logs_df):
 
                 add_log(
                     logs_df,
-                    "unit_price_toman",
+                    row["sale_id"],
+                    "unit_price_rial",
                     "",
                     unit_price,
                     "CALCULATED"
@@ -1498,6 +1587,7 @@ def check_QUDT(row, sales_df, logs_df):
 
                 add_log(
                     logs_df,
+                    row["sale_id"],
                     "discount_percent",
                     "",
                     discount,
@@ -1518,7 +1608,8 @@ def check_QUDT(row, sales_df, logs_df):
 
                 add_log(
                     logs_df,
-                    "total_price_toman",
+                    row["sale_id"],
+                    "total_price_rial",
                     "",
                     total_price,
                     "CALCULATED"
@@ -1589,6 +1680,7 @@ def check_QUDT(row, sales_df, logs_df):
 
             add_log(
                 logs_df,
+                row["sale_id"],
                 "quantity",
                 "",
                 quantity,
@@ -1618,6 +1710,7 @@ def check_QUDT(row, sales_df, logs_df):
 
                 add_log(
                     logs_df,
+                    row["sale_id"],
                     "quantity",
                     "",
                     quantity,
@@ -1673,7 +1766,8 @@ def check_QUDT(row, sales_df, logs_df):
 
             add_log(
                 logs_df,
-                "total_price_toman",
+                row["sale_id"],
+                "total_price_rial",
                 "",
                 total_price,
                 "IMPUTED"
@@ -1708,6 +1802,7 @@ def check_QUDT(row, sales_df, logs_df):
 
                 add_log(
                     logs_df,
+                    row["sale_id"],
                     "quantity",
                     "",
                     quantity,
@@ -1728,7 +1823,8 @@ def check_QUDT(row, sales_df, logs_df):
 
                 add_log(
                     logs_df,
-                    "unit_price_toman",
+                    row["sale_id"],
+                    "unit_price_rial",
                     "",
                     unit_price,
                     "CALCULATED"
@@ -1748,6 +1844,7 @@ def check_QUDT(row, sales_df, logs_df):
 
                 add_log(
                     logs_df,
+                    row["sale_id"],
                     "discount_percent",
                     "",
                     discount,
@@ -1768,7 +1865,8 @@ def check_QUDT(row, sales_df, logs_df):
 
                 add_log(
                     logs_df,
-                    "total_price_toman",
+                    row["sale_id"],
+                    "total_price_rial",
                     "",
                     total_price,
                     "CALCULATED"
@@ -1859,9 +1957,9 @@ def check_QUDT(row, sales_df, logs_df):
 
 def is_consistent(
     quantity,
-    unit_price_toman,
+    unit_price_rial,
     discount_percent,
-    total_price_toman,
+    total_price_rial,
     logs
 ):
 
@@ -1873,9 +1971,9 @@ def is_consistent(
         value is None or value is False
         for value in [
             quantity,
-            unit_price_toman,
+            unit_price_rial,
             discount_percent,
-            total_price_toman
+            total_price_rial
         ]
     ):
 
@@ -1884,7 +1982,7 @@ def is_consistent(
 
     expected_total = round(
         quantity
-        * unit_price_toman
+        * unit_price_rial
         * (1 - discount_percent / 100)
     )
 
@@ -1896,7 +1994,7 @@ def is_consistent(
     if expected_total == 0:
 
         consistent = (
-            total_price_toman == 0
+            total_price_rial == 0
         )
 
 
@@ -1904,9 +2002,10 @@ def is_consistent(
 
             add_log(
                 logs,
-                "total_price_toman",
-                total_price_toman,
-                total_price_toman,
+                row["sale_id"],
+                "total_price_rial",
+                total_price_rial,
+                total_price_rial,
                 "INCONSISTENT"
             )
 
@@ -1920,7 +2019,7 @@ def is_consistent(
 
     difference_percent = (
         abs(
-            total_price_toman
+            total_price_rial
             - expected_total
         )
         / abs(expected_total)
@@ -1936,9 +2035,10 @@ def is_consistent(
 
         add_log(
             logs,
-            "total_price_toman",
-            total_price_toman,
-            total_price_toman,
+            row["sale_id"],
+            "total_price_rial",
+            total_price_rial,
+            total_price_rial,
             "INCONSISTENT"
         )
 
@@ -1992,7 +2092,7 @@ clean_sales["is_consistent"] = pd.Series(
 # ============================================================
 # PROCESS SALES
 # ============================================================
-
+counter = 1
 for index, row in sales.iterrows():
 
     # --------------------------------------------------------
@@ -2069,6 +2169,7 @@ for index, row in sales.iterrows():
 
         add_log(
             logs,
+            row["sale_id"],
             "quantity/unit_price/discount/total_price",
             "",
             "",
@@ -2079,9 +2180,9 @@ for index, row in sales.iterrows():
 
 
     quantity = results[0]
-    unit_price_toman = results[1]
+    unit_price_rial = results[1]
     discount_percent = results[2]
-    total_price_toman = results[3]
+    total_price_rial = results[3]
 
 
     # --------------------------------------------------------
@@ -2090,9 +2191,9 @@ for index, row in sales.iterrows():
 
     consistency = is_consistent(
         quantity,
-        unit_price_toman,
+        unit_price_rial,
         discount_percent,
-        total_price_toman,
+        total_price_rial,
         logs
     )
 
@@ -2113,14 +2214,17 @@ for index, row in sales.iterrows():
 
         "quantity": quantity,
 
-        "unit_price_toman": unit_price_toman,
+        "unit_price_rial": unit_price_rial,
 
         "discount_percent": discount_percent,
 
-        "total_price_toman": total_price_toman,
+        "total_price_rial": total_price_rial,
 
         "is_consistent": consistency
     }
+
+    print("Done: ",counter," out of 50000")
+    counter=counter+1
 
 
 # ============================================================
