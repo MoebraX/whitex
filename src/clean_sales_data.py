@@ -1,10 +1,10 @@
 from pathlib import Path
-import datetime
+from datetime import datetime
 import re
 
 import pandas as pd
 import numpy as np
-import jdatetime
+
 
 
 # ============================================================
@@ -47,7 +47,7 @@ def add_log(logs, sale_id, field, before, after, flag):
 
     logs.loc[len(logs)] = {
         "sale_id": sale_id,
-        "date": datetime.datetime.now(),
+        "date": datetime.now(),
         "modified_field": field,
         "before": before,
         "after": after,
@@ -254,13 +254,13 @@ def check_sale_id(clean_sales, row, logs):
 
 
 # ============================================================
-# DATE PARSER
+# GREGORIAN DATE
 # ============================================================
 
-def parse_date(value):
+def parse_gregorian_date(value):
 
     if is_missing(value):
-        return None, False
+        return None
 
     value = str(value).strip()
 
@@ -275,45 +275,17 @@ def parse_date(value):
 
         try:
 
-            # ------------------------------------------------
-            # Detect Gregorian year
-            # ------------------------------------------------
-
-            year = int(value[:4])
-
-            if 1900 <= year <= 2100:
-
-                gregorian_date = datetime.datetime.strptime(
-                    value,
-                    fmt
-                ).date()
-
-                jalali_date = jdatetime.date.fromgregorian(
-                    date=gregorian_date
-                )
-
-                return jalali_date, True
-
-            # ------------------------------------------------
-            # Treat as Jalali
-            # ------------------------------------------------
-
-            jalali_date = jdatetime.datetime.strptime(
+            return datetime.strptime(
                 value,
                 fmt
             ).date()
 
-            return jalali_date, False
-
         except (ValueError, TypeError):
+
             continue
 
-    return None, False
+    return None
 
-
-# ============================================================
-# CHECK DATE
-# ============================================================
 
 def check_date(row, logs):
 
@@ -350,7 +322,7 @@ def check_date(row, logs):
 
         add_log(
             logs,
-            row["sale_id"],
+            sale_id,
             "date",
             output,
             cleaned,
@@ -361,21 +333,21 @@ def check_date(row, logs):
 
 
     # --------------------------------------------------------
-    # Parse date
+    # Parse Gregorian date
     # --------------------------------------------------------
 
-    jdate, was_gregorian = parse_date(output)
+    gdate = parse_gregorian_date(output)
 
 
     # --------------------------------------------------------
     # Invalid date
     # --------------------------------------------------------
 
-    if jdate is None:
+    if gdate is None:
 
         add_log(
             logs,
-            row["sale_id"],
+            sale_id,
             "date",
             output,
             "",
@@ -386,36 +358,22 @@ def check_date(row, logs):
 
 
     # --------------------------------------------------------
-    # Normalize to YYYY-MM-DD
+    # Normalize format
+    #
+    # Example:
+    #
+    # 2026/08/31 -> 2026-08-31
+    # 31/08/2026 -> 2026-08-31
     # --------------------------------------------------------
 
-    normalized = jdate.strftime("%Y-%m-%d")
+    normalized = gdate.strftime("%Y-%m-%d")
 
 
-    # --------------------------------------------------------
-    # Gregorian → Jalali
-    # --------------------------------------------------------
-
-    if was_gregorian:
+    if normalized != output:
 
         add_log(
             logs,
-            row["sale_id"],
-            "date",
-            output,
-            normalized,
-            "TYPE_FIXED"
-        )
-
-    # --------------------------------------------------------
-    # Jalali format normalization
-    # --------------------------------------------------------
-
-    elif normalized != output:
-
-        add_log(
-            logs,
-            row["sale_id"],
+            sale_id,
             "date",
             output,
             normalized,
@@ -430,20 +388,20 @@ def check_date(row, logs):
     # Date range validation
     # --------------------------------------------------------
 
-    now = jdatetime.date.today()
+    today = datetime.today().date()
 
-    starting_date = jdatetime.date(
-        1345,
+    starting_date = datetime(
+        2000,
         1,
         1
-    )
+    ).date()
 
 
-    if jdate > now or jdate < starting_date:
+    if gdate > today or gdate < starting_date:
 
         add_log(
             logs,
-            row["sale_id"],
+            sale_id,
             "date",
             output,
             output,
@@ -456,16 +414,15 @@ def check_date(row, logs):
     # --------------------------------------------------------
 
     difference_days = (
-        now.toordinal()
-        - jdate.toordinal()
-    )
+        today - gdate
+    ).days
 
 
     if abs(difference_days) > 365:
 
         add_log(
             logs,
-            row["sale_id"],
+            sale_id,
             "date",
             output,
             output,
