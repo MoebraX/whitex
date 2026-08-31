@@ -18,7 +18,7 @@ engine = create_engine(DATABASE_URL)
 # 2. Read CSV
 # ==========================================
 
-CSV_PATH = "data/sale.csv"
+CSV_PATH = "data/sales.csv"
 
 df = pd.read_csv(CSV_PATH)
 
