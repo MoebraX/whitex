@@ -27,31 +27,31 @@ print(f"CSV loaded: {len(df)} rows")
 # 3. Rename columns
 # ==========================================
 
-df = df.rename(columns={
-    "date": "sale_date"
-})
+# df = df.rename(columns={
+#     "date": "date"
+# })
 
 
 # ==========================================
 # 4. Convert Jalali date → Gregorian date
 # ==========================================
 
-def jalali_to_gregorian(date):
-    if pd.isna(date):
-        return None
+# def jalali_to_gregorian(date):
+#     if pd.isna(date):
+#         return None
 
-    date = str(date).strip()
+#     date = str(date).strip()
 
-    year, month, day = map(int, date.split("-"))
+#     year, month, day = map(int, date.split("-"))
 
-    return jdatetime.date(
-        year,
-        month,
-        day
-    ).togregorian()
+#     return jdatetime.date(
+#         year,
+#         month,
+#         day
+#     ).togregorian()
 
 
-df["sale_date"] = df["sale_date"].apply(jalali_to_gregorian)
+# df["date"] = df["date"].apply(jalali_to_gregorian)
 
 
 # ==========================================
@@ -69,8 +69,8 @@ df["total_price_rial"] = df["total_price_rial"].astype("int64")
 # 6. Remove data-cleaning validation column
 # ==========================================
 
-if "is_consistent" in df.columns:
-    df = df.drop(columns=["is_consistent"])
+# if "is_consistent" in df.columns:
+#     df = df.drop(columns=["is_consistent"])
 
 
 # ==========================================
@@ -81,8 +81,8 @@ print("\nSample data:")
 print(df.head())
 
 print("\nDate range:")
-print(f"From: {df['sale_date'].min()}")
-print(f"To:   {df['sale_date'].max()}")
+print(f"From: {df['date'].min()}")
+print(f"To:   {df['date'].max()}")
 
 
 # ==========================================
@@ -90,7 +90,7 @@ print(f"To:   {df['sale_date'].max()}")
 # ==========================================
 
 df.to_sql(
-    "fact_sales",
+    "sales",
     engine,
     if_exists="append",
     index=False
