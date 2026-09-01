@@ -1,8 +1,7 @@
 import pandas as pd
-import jdatetime
 from sqlalchemy import create_engine
 
-from src.config import DB_PORT, DATABASE_URL
+from src.config import DATABASE_URL
 
 
 # ==========================================
@@ -13,7 +12,7 @@ engine = create_engine(DATABASE_URL)
 
 
 # ==========================================
-# 2. Read CSV
+# 2. Read cleaned CSV
 # ==========================================
 
 CSV_PATH = "data/clean_sales.csv"
@@ -33,7 +32,7 @@ print(f"CSV loaded: {len(df)} rows")
 
 
 # ==========================================
-# 4. Convert Jalali date → Gregorian date
+# 4. Convert Gregorian date
 # ==========================================
 
 # def jalali_to_gregorian(date):
@@ -55,7 +54,7 @@ print(f"CSV loaded: {len(df)} rows")
 
 
 # ==========================================
-# 5. Convert data types
+# 6. Convert data types
 # ==========================================
 
 df["sale_id"] = df["sale_id"].astype("int64")
@@ -66,7 +65,7 @@ df["total_price_rial"] = df["total_price_rial"].astype("int64")
 
 
 # ==========================================
-# 6. Remove data-cleaning validation column
+# 7. Remove data-cleaning validation column
 # ==========================================
 
 # if "is_consistent" in df.columns:
@@ -74,7 +73,7 @@ df["total_price_rial"] = df["total_price_rial"].astype("int64")
 
 
 # ==========================================
-# 7. Show sample before loading
+# 8. Show sample before loading
 # ==========================================
 
 print("\nSample data:")
@@ -86,7 +85,7 @@ print(f"To:   {df['date'].max()}")
 
 
 # ==========================================
-# 8. Load data into PostgreSQL
+# 9. Load data into PostgreSQL
 # ==========================================
 
 df.to_sql(
@@ -98,7 +97,9 @@ df.to_sql(
 
 
 # ==========================================
-# 9. Finish
+# 10. Finish
 # ==========================================
 
-print(f"\nSuccessfully loaded {len(df)} rows into fact_sales.")
+print(
+    f"\nSuccessfully loaded {len(df)} rows into fact_sales."
+)
