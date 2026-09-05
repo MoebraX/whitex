@@ -57,7 +57,7 @@ print(f"CSV loaded: {len(df)} rows")
 # 6. Convert data types
 # ==========================================
 
-df["sale_id"] = df["sale_id"].astype("int64")
+df["sale_id"] = df["sale_id"].astype(str)
 df["quantity"] = df["quantity"].astype("int64")
 df["unit_price_rial"] = df["unit_price_rial"].astype("int64")
 df["discount_percent"] = df["discount_percent"].astype(float)
@@ -101,5 +101,5 @@ df.to_sql(
 # ==========================================
 
 print(
-    f"\nSuccessfully loaded {len(df)} rows into fact_sales."
+    f"\nSuccessfully loaded {len(df)} rows into sales."
 )
