@@ -4,25 +4,19 @@ import sqlalchemy as sa
 
 revision = "002_fix_tables_for_bi"
 down_revision = "001_create_tables"
+
 branch_labels = None
 depends_on = None
 
 
+
 def upgrade() -> None:
 
+
     # ============================================================
-    # SALES FIXES
+    # SALES RELATIONSHIPS
     # ============================================================
 
-    # sale_id باید unique باشد چون شناسه تراکنش است
-    op.create_unique_constraint(
-        "uq_sales_sale_id",
-        "sales",
-        ["sale_id"]
-    )
-
-
-    # ارتباط فروش با محصول
     op.create_foreign_key(
         "fk_sales_product",
         "sales",
@@ -32,7 +26,6 @@ def upgrade() -> None:
     )
 
 
-    # ارتباط فروش با مرکز توزیع
     op.create_foreign_key(
         "fk_sales_distribution",
         "sales",
@@ -42,11 +35,11 @@ def upgrade() -> None:
     )
 
 
+
     # ============================================================
-    # INVENTORY FIXES
+    # INVENTORY RELATIONSHIPS
     # ============================================================
 
-    # تضمین ارتباط موجودی با محصول
     op.create_foreign_key(
         "fk_inventory_product",
         "inventory",
@@ -56,7 +49,6 @@ def upgrade() -> None:
     )
 
 
-    # تضمین ارتباط موجودی با مرکز توزیع
     op.create_foreign_key(
         "fk_inventory_distribution",
         "inventory",
@@ -66,26 +58,29 @@ def upgrade() -> None:
     )
 
 
-    # جلوگیری از ثبت موجودی تکراری برای یک محصول،
-    # یک مرکز و یک تاریخ
+
+    # ============================================================
+    # INVENTORY UNIQUENESS
+    # ============================================================
+
     op.create_unique_constraint(
-        "uq_inventory_product_date_distribution",
+        "uq_inventory_daily_snapshot",
         "inventory",
         [
             "product_id",
-            "date",
-            "distribution_id"
+            "distribution_id",
+            "date"
         ]
     )
 
 
+
     # ============================================================
-    # PRODUCTS FIXES
+    # DATA VALIDATION
     # ============================================================
 
-    # قیمت و هزینه نباید منفی باشند
     op.create_check_constraint(
-        "ck_products_price_positive",
+        "ck_products_positive_prices",
         "products",
         """
         unit_price_rial >= 0
@@ -94,13 +89,8 @@ def upgrade() -> None:
     )
 
 
-    # ============================================================
-    # SALES VALIDATION
-    # ============================================================
-
-    # تعداد فروش منفی منطقی نیست
     op.create_check_constraint(
-        "ck_sales_quantity_positive",
+        "ck_sales_positive_quantity",
         "sales",
         """
         quantity >= 0
@@ -108,7 +98,6 @@ def upgrade() -> None:
     )
 
 
-    # تخفیف باید بین 0 تا 100 باشد
     op.create_check_constraint(
         "ck_sales_discount_range",
         "sales",
@@ -119,7 +108,9 @@ def upgrade() -> None:
     )
 
 
+
 def downgrade() -> None:
+
 
     op.drop_constraint(
         "ck_sales_discount_range",
@@ -127,23 +118,27 @@ def downgrade() -> None:
         type_="check"
     )
 
+
     op.drop_constraint(
-        "ck_sales_quantity_positive",
+        "ck_sales_positive_quantity",
         "sales",
         type_="check"
     )
 
+
     op.drop_constraint(
-        "ck_products_price_positive",
+        "ck_products_positive_prices",
         "products",
         type_="check"
     )
 
+
     op.drop_constraint(
-        "uq_inventory_product_date_distribution",
+        "uq_inventory_daily_snapshot",
         "inventory",
         type_="unique"
     )
+
 
     op.drop_constraint(
         "fk_inventory_distribution",
@@ -151,11 +146,13 @@ def downgrade() -> None:
         type_="foreignkey"
     )
 
+
     op.drop_constraint(
         "fk_inventory_product",
         "inventory",
         type_="foreignkey"
     )
+
 
     op.drop_constraint(
         "fk_sales_distribution",
@@ -163,14 +160,9 @@ def downgrade() -> None:
         type_="foreignkey"
     )
 
+
     op.drop_constraint(
         "fk_sales_product",
         "sales",
         type_="foreignkey"
-    )
-
-    op.drop_constraint(
-        "uq_sales_sale_id",
-        "sales",
-        type_="unique"
     )
