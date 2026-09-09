@@ -24,6 +24,26 @@ random.seed(42)
 
 
 # ============================================================
+# VALID PRODUCT IDs
+# ============================================================
+
+VALID_PRODUCT_IDS = {
+    f"P{i:03d}"
+    for i in range(1, 21)
+}
+
+
+# ============================================================
+# VALID DISTRIBUTION IDs
+# ============================================================
+
+VALID_DISTRIBUTION_IDS = {
+    f"D{i:03d}"
+    for i in range(1, 37)
+}
+
+
+# ============================================================
 # PRODUCT SALES WEIGHTS
 # ============================================================
 
@@ -32,8 +52,8 @@ random.seed(42)
 # Small-volume products intentionally have higher demand.
 # For example:
 #
-#   1L bleach  >>  4L bleach
-#
+#   1L bleach >> 4L bleach
+
 PRODUCT_WEIGHTS = {
     "P001": 2.0,
     "P002": 3.5,
@@ -70,21 +90,43 @@ PRODUCT_WEIGHTS = {
 # Larger markets receive more sales transactions.
 
 REGION_WEIGHTS = {
-    "R001": 20.0,  # Tehran
-    "R002": 9.0,   # Isfahan
-    "R003": 12.0,  # Mashhad
-    "R004": 7.0,   # Shiraz
-    "R005": 7.0,   # Tabriz
-    "R006": 8.0,   # Karaj
-    "R007": 6.0,   # Ahvaz
-    "R008": 4.0,   # Qom
-    "R009": 5.0,   # Rasht
-    "R010": 4.5,   # Sari
-    "R011": 4.5,   # Kerman
-    "R012": 3.5,   # Yazd
-    "R013": 4.0,   # Urmia
-    "R014": 3.5,   # Kermanshah
-    "R015": 3.0,   # Bandar Abbas
+    "D001": 20.0,
+    "D002": 9.0,
+    "D003": 12.0,
+    "D004": 7.0,
+    "D005": 7.0,
+    "D006": 8.0,
+    "D007": 6.0,
+    "D008": 4.0,
+    "D009": 5.0,
+    "D010": 4.5,
+    "D011": 4.5,
+    "D012": 3.5,
+    "D013": 4.0,
+    "D014": 3.5,
+    "D015": 3.0,
+
+    "D016": 3.0,
+    "D017": 2.8,
+    "D018": 2.8,
+    "D019": 2.5,
+    "D020": 2.5,
+    "D021": 2.3,
+    "D022": 2.3,
+    "D023": 2.0,
+    "D024": 2.0,
+    "D025": 1.8,
+    "D026": 1.8,
+    "D027": 1.6,
+    "D028": 1.6,
+    "D029": 1.5,
+    "D030": 1.5,
+    "D031": 1.4,
+    "D032": 1.4,
+    "D033": 1.3,
+    "D034": 1.3,
+    "D035": 1.2,
+    "D036": 1.2,
 }
 
 
@@ -263,8 +305,11 @@ def get_day_multiplier(d):
         Lower commercial activity.
     """
 
+    # Python:
     # Monday = 0
-    # ...
+    # Tuesday = 1
+    # Wednesday = 2
+    # Thursday = 3
     # Friday = 4
 
     if d.weekday() == 4:
@@ -280,30 +325,50 @@ def get_day_multiplier(d):
 # DISTRIBUTION QUANTITY
 # ============================================================
 
-def get_distribution_quantity_multiplier(
-    distribution_id
-):
+def get_distribution_quantity_multiplier(distribution_id):
     """
     Different distribution regions have
     different market sizes.
     """
 
     multipliers = {
-        "R001": 1.80,  # Tehran
-        "R002": 1.20,  # Isfahan
-        "R003": 1.50,  # Mashhad
-        "R004": 1.10,  # Shiraz
-        "R005": 1.10,  # Tabriz
-        "R006": 1.30,  # Karaj
-        "R007": 1.00,  # Ahvaz
-        "R008": 0.80,  # Qom
-        "R009": 0.90,  # Rasht
-        "R010": 0.80,  # Sari
-        "R011": 0.80,  # Kerman
-        "R012": 0.70,  # Yazd
-        "R013": 0.80,  # Urmia
-        "R014": 0.70,  # Kermanshah
-        "R015": 0.70,  # Bandar Abbas
+        "D001": 1.80,
+        "D002": 1.20,
+        "D003": 1.50,
+        "D004": 1.10,
+        "D005": 1.10,
+        "D006": 1.30,
+        "D007": 1.00,
+        "D008": 0.80,
+        "D009": 0.90,
+        "D010": 0.80,
+        "D011": 0.80,
+        "D012": 0.70,
+        "D013": 0.80,
+        "D014": 0.70,
+        "D015": 0.70,
+
+        "D016": 0.75,
+        "D017": 0.75,
+        "D018": 0.75,
+        "D019": 0.70,
+        "D020": 0.70,
+        "D021": 0.70,
+        "D022": 0.70,
+        "D023": 0.65,
+        "D024": 0.65,
+        "D025": 0.65,
+        "D026": 0.65,
+        "D027": 0.60,
+        "D028": 0.60,
+        "D029": 0.60,
+        "D030": 0.60,
+        "D031": 0.55,
+        "D032": 0.55,
+        "D033": 0.55,
+        "D034": 0.55,
+        "D035": 0.50,
+        "D036": 0.50,
     }
 
     return multipliers.get(
@@ -404,6 +469,18 @@ with open(
 
     for row in reader:
 
+        product_id = row["product_id"].strip()
+
+        # Only use P001 through P020
+        if product_id not in VALID_PRODUCT_IDS:
+            continue
+
+        # Make sure the product has a defined weight
+        if product_id not in PRODUCT_WEIGHTS:
+            continue
+
+        row["product_id"] = product_id
+
         row["unit_price_rial"] = int(
             row["unit_price_rial"]
         )
@@ -427,7 +504,39 @@ with open(
     reader = csv.DictReader(f)
 
     for row in reader:
+
+        distribution_id = row[
+            "distribution_id"
+        ].strip()
+
+        # Only use D001 through D036
+        if distribution_id not in VALID_DISTRIBUTION_IDS:
+            continue
+
+        # Make sure the distribution has a defined weight
+        if distribution_id not in REGION_WEIGHTS:
+            continue
+
+        row["distribution_id"] = distribution_id
+
         distributors.append(row)
+
+
+# ============================================================
+# VALIDATION
+# ============================================================
+
+if not products:
+    raise ValueError(
+        "No valid products P001-P020 were found "
+        "in products.csv."
+    )
+
+if not distributors:
+    raise ValueError(
+        "No valid distributions D001-D036 were found "
+        "in distributions.csv."
+    )
 
 
 # ============================================================
@@ -435,19 +544,13 @@ with open(
 # ============================================================
 
 product_weights = [
-    PRODUCT_WEIGHTS.get(
-        product["product_id"],
-        1.0
-    )
+    PRODUCT_WEIGHTS[product["product_id"]]
     for product in products
 ]
 
 
 region_weights = [
-    REGION_WEIGHTS.get(
-        distributor["distribution_id"],
-        1.0
-    )
+    REGION_WEIGHTS[distributor["distribution_id"]]
     for distributor in distributors
 ]
 
@@ -602,6 +705,7 @@ for sale_number in range(
 
     # Use the exact unit price from products.csv.
     # No variation is applied here.
+
     unit_price = base_price
 
     # --------------------------------------------------------
@@ -826,6 +930,14 @@ with open(
 
 print(
     f"Generated {len(sales):,} sales records."
+)
+
+print(
+    f"Valid products: P001-P020"
+)
+
+print(
+    f"Valid distributions: D001-D036"
 )
 
 print(
